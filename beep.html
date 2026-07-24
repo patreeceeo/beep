@@ -1,0 +1,2875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beep runs your code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#FFF9EF; --panel:#FFFFFF; --ink:#2E2A3B; --ink-soft:#6E6880;
+    --purple:#7C6FE0; --purple-soft:#EFEDFC; --purple-deep:#4A3FA3;
+    --teal:#2BB39A; --teal-soft:#E4F7F2; --teal-deep:#0E6B5B;
+    --coral:#FF7A59; --coral-soft:#FFEDE7; --coral-deep:#B8492D;
+    --sun:#FFC94D; --sun-soft:#FFF3D6; --sun-deep:#8A5B00;
+    --line:#EAE2D2; --radius:14px;
+  }
+  *{box-sizing:border-box; margin:0}
+  html,body{height:100%}
+  body{
+    background:var(--paper); color:var(--ink);
+    font-family:'Nunito',sans-serif; font-size:16px; line-height:1.5;
+    padding:20px; display:flex; justify-content:center;
+  }
+  .app{width:100%; max-width:1000px}
+  header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:6px}
+  h1{font-family:'Fredoka',sans-serif; font-weight:600; font-size:26px}
+  header p{color:var(--ink-soft); font-size:14.5px}
+  .board{
+    display:grid; grid-template-columns:minmax(330px,1.1fr) minmax(300px,1fr);
+    gap:16px; margin-top:12px; align-items:start;
+  }
+  .side{display:flex; flex-direction:column; gap:16px; position:sticky; top:12px}
+  @media (max-width:720px){ .board{grid-template-columns:1fr} .side{position:static} }
+
+  .panel{background:var(--panel); border:2px solid var(--line); border-radius:var(--radius); padding:14px 16px}
+  .panel h2{
+    font-family:'Fredoka',sans-serif; font-weight:500; font-size:14px;
+    letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); margin-bottom:10px;
+  }
+
+  /* ------- script track ------- */
+  .track-wrap{position:relative; padding-left:52px; padding-right:34px}
+  .blocks{display:flex; flex-direction:column; gap:7px; position:relative}
+  #wires{
+    position:absolute; inset:0; overflow:visible; pointer-events:none; z-index:1;
+    width:100%; height:100%;
+  }
+  /* direct-child selector so these don't also style the arrow marker's <path> */
+  #wires > path{stroke:var(--coral); stroke-width:2; fill:none; stroke-linecap:round; opacity:.28}
+  #wires > path.rope-hi{opacity:.95; stroke-width:2.5}   /* the dragged block's connections */
+  #wires > path.zing{opacity:1; stroke-width:3.5; animation:zing .7s ease}
+  @keyframes zing{0%{opacity:.28; stroke-width:2} 25%{opacity:1; stroke-width:4} 100%{opacity:1; stroke-width:3.5}}
+  .block{
+    border-radius:11px; padding:6px 12px 6px 6px; font-family:'Fredoka',sans-serif;
+    font-weight:500; font-size:13.5px; border:2px solid transparent;
+    transition:transform .25s, box-shadow .25s, border-color .25s;
+    position:relative; z-index:2;
+    cursor:default; user-select:none; -webkit-user-select:none;
+    display:flex; align-items:center; gap:7px;
+  }
+  .block .grip{
+    flex:0 0 auto; align-self:stretch; width:18px; min-height:20px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:grab; touch-action:none; border-radius:7px;
+    color:currentColor; opacity:.4; transition:opacity .15s, background .15s;
+  }
+  .block .grip:hover{opacity:.9; background:rgba(46,42,59,.07)}
+  .block .grip:active{cursor:grabbing}
+  .block .grip svg{width:11px; height:16px; display:block}
+  .block .content{flex:1 1 auto; min-width:0}
+  /* draggable expression pieces: .token = number leaf, .group = number subtree,
+     .pred = boolean predicate (hexagonal, to read as a different kind of value).
+     Named to avoid colliding with the backpack's .tile value monitors. */
+  .token, .group, .pred{
+    cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none;
+    position:relative; z-index:2;
+    transition:transform .18s cubic-bezier(.4,1.3,.5,1), box-shadow .15s, background .15s, border-color .15s;
+  }
+  .token{
+    display:inline-block; background:#fff; border:1.5px solid var(--purple);
+    color:var(--purple-deep); border-radius:8px; padding:0 8px; margin:0 1px;
+    font-family:'Nunito',sans-serif; font-weight:700; font-size:12px; line-height:1.55;
+    box-shadow:0 1.5px 0 rgba(74,63,163,.35);
+  }
+  .token.num{ border-color:var(--teal); color:var(--teal-deep); box-shadow:0 1.5px 0 rgba(14,107,91,.30); }
+  .group{
+    display:inline-flex; align-items:center; gap:3px;
+    background:rgba(124,111,224,.09); border:1.5px dashed var(--purple);
+    border-radius:10px; padding:2px 6px; margin:0 1px; vertical-align:middle;
+  }
+  /* boolean pieces: gold hexagon. clip-path clips borders/outlines/shadows, so
+     the border is a two-layer trick — outer = ring color, inner = fill, and the
+     peeking outer edge is the visible border (diagonals included). */
+  .pred{
+    display:inline-flex; vertical-align:middle; margin:0 2px; padding:1.5px;
+    background:var(--sun);                     /* the ring = the visible border */
+    clip-path:polygon(9px 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 9px 100%, 0 50%);
+  }
+  .pred-in{
+    display:inline-flex; align-items:center; gap:3px;
+    background:var(--sun-soft); color:var(--sun-deep); padding:1px 12px;
+    clip-path:polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
+  }
+  .pred .chip{ background:rgba(255,255,255,.7); color:var(--sun-deep); }
+  .group .op, .token .op{ font-family:'Fredoka',sans-serif; color:var(--ink-soft); padding:0 1px; }
+  .op{ font-family:'Fredoka',sans-serif; color:var(--ink-soft); padding:0 2px; }
+  /* ------- Phase 6: edit a leaf in place -------
+     A tap (not a drag) on a leaf changes its CONTENT only - never the tree's
+     shape - so the always-valid invariant is preserved by construction: node
+     count and slot types are untouched, exactly like a swap. The operator glyph
+     toggles + / - on tap; number / variable / sensor leaves open a chooser. */
+  .op[data-op]{ cursor:pointer; border-radius:6px; padding:0 3px; transition:background .15s, color .15s; }
+  .op[data-op]:hover{ background:var(--purple-soft); color:var(--purple-deep); }
+  .token[data-sl]:hover{ box-shadow:0 0 0 2px var(--teal-soft); }
+  .leaf-pop{
+    position:fixed; z-index:2000; background:var(--panel);
+    border:2px solid var(--ink); border-radius:12px; padding:8px;
+    box-shadow:0 10px 26px rgba(46,42,59,.22);
+    display:flex; flex-direction:column; gap:6px; font-family:'Nunito',sans-serif;
+  }
+  .leaf-pop .pop-title{
+    font-size:11px; font-weight:700; letter-spacing:.03em;
+    text-transform:uppercase; color:var(--ink-soft);
+  }
+  .leaf-pop .pop-grid{ display:flex; flex-wrap:wrap; gap:5px; max-width:236px; }
+  .leaf-pop .opt{
+    font-family:'Fredoka',sans-serif; font-weight:500; font-size:13px;
+    border:1.5px solid var(--line); border-radius:9px; background:#fff; color:var(--ink);
+    padding:4px 9px; cursor:pointer; transition:background .12s, border-color .12s;
+  }
+  .leaf-pop .opt:hover{ background:var(--purple-soft); border-color:var(--purple); }
+  .leaf-pop .opt.cur{ background:var(--purple-soft); border-color:var(--purple-deep); color:var(--purple-deep); }
+  .leaf-pop .pop-row{ display:flex; gap:6px; align-items:center; justify-content:center; }
+  .leaf-pop input.numedit{
+    width:96px; text-align:center; background:#fff; border:2px solid var(--line);
+    border-radius:8px; padding:4px 6px; font-family:'Fredoka',sans-serif;
+    font-weight:600; font-size:18px; color:var(--ink); -moz-appearance:textfield;
+  }
+  .leaf-pop input.numedit:focus{ outline:none; border-color:var(--purple); background:var(--purple-soft); }
+  .leaf-pop .stepper{
+    font-family:'Fredoka',sans-serif; font-weight:600; font-size:16px; line-height:1;
+    border:1.5px solid var(--line); border-radius:8px; background:#fff; color:var(--ink);
+    width:30px; height:30px; cursor:pointer; flex:0 0 auto;
+  }
+  .leaf-pop .stepper:hover{ background:var(--purple-soft); border-color:var(--purple); }
+  .leaf-pop .wrap-sec{ margin-top:8px; padding-top:8px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:6px; }
+  .token:active, .group:active, .pred:active{cursor:grabbing}
+  .token.lifting, .group.lifting{
+    pointer-events:none; z-index:60; cursor:grabbing;
+    box-shadow:0 9px 18px rgba(46,42,59,.30); transition:box-shadow .15s;
+  }
+  /* box-shadow is clipped on hexagons, so lift uses a drop-shadow filter instead */
+  .pred.lifting{ pointer-events:none; z-index:60; cursor:grabbing; filter:drop-shadow(0 8px 10px rgba(46,42,59,.30)); }
+  .token.drop-ok, .group.drop-ok{ outline:2px dashed var(--teal); outline-offset:2px; }
+  .pred.drop-ok{ background:var(--teal); }                       /* ring turns teal (outline would be clipped) */
+  .token.drop-hover{ background:var(--teal-soft); border-color:var(--teal-deep); }
+  .group.drop-hover{ background:var(--teal-soft); border-color:var(--teal-deep); border-style:solid; }
+  .pred.drop-hover{ background:var(--teal-deep); }
+  .pred.drop-hover .pred-in{ background:var(--teal-soft); color:var(--teal-deep); }
+  .token.just-set, .group.just-set{ background:var(--purple-soft); border-color:var(--purple-deep); }
+  .pred.just-set .pred-in{ background:var(--sun); }
+  /* recessed placeholder left where a dragged piece was — the piece fits back in.
+     Base is neutral (used in the tray); inside a statement block it takes that
+     block's hue so it reads as a depression carved into the block. */
+  .socket{ pointer-events:none; vertical-align:middle; }
+  .token.socket, .group.socket{
+    background:rgba(46,42,59,.05); border:1.5px dashed var(--line);
+    box-shadow:inset 0 2px 4px rgba(46,42,59,.16);
+  }
+  .pred.socket{ background:var(--line); }
+  .pred.socket .pred-in{
+    width:100%; height:100%; background:rgba(46,42,59,.06);
+    box-shadow:inset 0 2px 4px rgba(46,42,59,.16);
+  }
+  /* purple hue inside assignment blocks */
+  .block.assign .token.socket, .block.assign .group.socket{
+    background:rgba(124,111,224,.20); border-color:rgba(124,111,224,.55);
+    box-shadow:inset 0 2px 4px rgba(74,63,163,.22);
+  }
+  .block.assign .pred.socket{ background:rgba(124,111,224,.65); }
+  .block.assign .pred.socket .pred-in{ background:rgba(124,111,224,.22); box-shadow:inset 0 2px 4px rgba(74,63,163,.22); }
+  /* sun hue inside condition (check) blocks */
+  .block.check .token.socket, .block.check .group.socket{
+    background:rgba(255,201,77,.32); border-color:rgba(255,201,77,.75);
+    box-shadow:inset 0 2px 4px rgba(138,91,0,.20);
+  }
+  .block.check .pred.socket{ background:rgba(255,201,77,.85); }
+  .block.check .pred.socket .pred-in{ background:rgba(255,201,77,.34); box-shadow:inset 0 2px 4px rgba(138,91,0,.20); }
+  .block.focused{ box-shadow:0 0 0 2px var(--purple); z-index:4; }
+  .tray{
+    display:flex; gap:8px; flex-wrap:wrap; align-content:flex-start; align-items:center;
+    min-height:40px; padding:9px; border-radius:12px;
+    background:var(--paper); border:2px dashed var(--line);
+  }
+  .tray.drop-ok{ border-color:var(--teal); }
+  .tray-note{ margin-top:9px; font-size:12.5px; color:var(--ink-soft); }
+  .tray-note b{ color:var(--ink); }
+  /* ------- Phase 7: collapse (prune) a binary op -------
+     Drag an operand to Trash (discard it) or to the spare-tiles area (keep it as
+     a tile); a confirm dialog previews the bin then the operand left over, and the
+     bin is replaced by the operand you did NOT drag. Slot stays full + same type,
+     so the always-valid invariant holds; node count just drops. */
+  .tray-row{ display:flex; gap:10px; align-items:stretch; }
+  .tray-row .tray{ flex:1 1 auto; }
+  .trash-zone{
+    flex:0 0 auto; width:74px; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:3px; padding:6px;
+    border:2px dashed var(--line); border-radius:12px; background:var(--paper);
+    color:var(--ink-soft); font-family:'Fredoka',sans-serif; font-size:12px; text-align:center;
+  }
+  .trash-zone svg{ width:18px; height:18px; display:block; }
+  .trash-zone.zone-hot{ border-color:var(--coral); background:var(--coral-soft); color:var(--coral-deep); }
+  .tray.zone-hot{ border-color:var(--coral); background:var(--coral-soft); }
+  /* ------- Phase 8: the palette (an infinite typed source) -------
+     A shelf of PROTOTYPES: dragging lifts a ghost and mints a fresh node; the
+     prototype never leaves, so the shelf cannot run out and Reset ignores it.
+     A value drop REPLACES the occupant, which retreats to the spare tiles
+     (material is never lost); an operation tile WRAPS its target instead.
+     Trash doubles as cancel: a fresh piece dropped there just evaporates. */
+  .palette{ display:flex; flex-direction:column; gap:9px; }
+  .pal-group{ display:flex; flex-wrap:wrap; gap:6px 7px; align-items:center; }
+  .pal-lbl{ flex:0 0 100%; font-size:11px; font-weight:700; color:var(--ink-soft);
+            text-transform:uppercase; letter-spacing:.05em; }
+  .proto{ cursor:grab; }
+  .token.optile{
+    border-color:var(--purple); color:var(--purple-deep); min-width:34px; text-align:center;
+    font-family:'Fredoka',sans-serif; font-weight:600;
+    box-shadow:0 1.5px 0 rgba(74,63,163,.30);
+  }
+  /* ------- Phase 9: statements are material too -------
+     Mini statement blocks live on the shelf (prototypes) and in the spare
+     tiles (stashed). A dangling flag reference renders frayed; Beep gets a
+     puzzled wobble when he tries to take a jump that points at nothing. */
+  .stmt-tile{
+    display:inline-flex; align-items:center; gap:4px; max-width:100%;
+    border-radius:9px; padding:4px 9px; font-size:12.5px; cursor:grab;
+    font-family:'Fredoka',sans-serif; font-weight:500;
+    border:1.5px solid rgba(46,42,59,.14); box-shadow:0 1.5px 0 rgba(46,42,59,.12);
+  }
+  .stmt-tile:active{ cursor:grabbing; }
+  .stmt-tile.assign{ background:var(--purple-soft); color:var(--purple-deep); }
+  .stmt-tile.action{ background:var(--teal-soft); color:var(--teal-deep); }
+  .stmt-tile.check{ background:var(--sun-soft); color:var(--sun-deep); }
+  .stmt-tile.jump{ background:var(--coral-soft); color:var(--coral-deep); }
+  .stmt-tile.label{ background:#fff; color:var(--ink); }
+  .stmt-tile .chip, .stmt-tile .flagref{
+    background:rgba(255,255,255,.75); border-radius:6px; padding:0 5px;
+    font-family:'Nunito',sans-serif; font-weight:700; font-size:11px;
+  }
+  .flagref.lost{
+    background:var(--coral-soft) !important; color:var(--coral-deep) !important;
+    border:1.5px dashed var(--coral);
+  }
+  #robot.confused svg{ animation:puzzle .55s ease-in-out 3; }
+  @keyframes puzzle{
+    0%,100%{ transform:rotate(0); }
+    25%{ transform:rotate(-9deg); }
+    75%{ transform:rotate(9deg); }
+  }
+  /* ------- adjustable workbench: every side panel folds (tap its header)
+     and reorders (drag its header). The arrangement persists, so putting the
+     spare tiles next to the program is a one-time choice. ------- */
+  .panel-head{
+    display:flex; align-items:center; gap:8px; margin-bottom:10px;
+    cursor:grab; user-select:none; -webkit-user-select:none;
+  }
+  .panel-head:active{ cursor:grabbing; }
+  .panel-head h2{ flex:1; margin-bottom:0; }
+  .panel-grip{ color:var(--ink-soft); opacity:.45; display:flex; }
+  .panel-head:hover .panel-grip{ opacity:.9; }
+  .panel-grip svg{ width:9px; height:13px; display:block; }
+  .panel-chev{
+    color:var(--ink-soft); font-size:36px; line-height:1;
+    transition:transform .18s ease;
+  }
+  .panel.collapsed .panel-chev{ transform:rotate(-90deg); }
+  .panel.collapsed > *:not(.panel-head){ display:none; }
+  .panel.collapsed .panel-head{ margin-bottom:0; }
+  .panel.panel-dragging{
+    cursor:grabbing; transform:rotate(.5deg);
+    box-shadow:0 14px 30px rgba(46,42,59,.25);
+  }
+  .panel.panel-placeholder{
+    background:transparent; border:2px dashed var(--line); box-shadow:none;
+  }
+  /* the section explanations live in popovers behind a ?-disc in each header */
+  .panel-help{
+    width:22px; height:22px; border-radius:50%; border:2px solid var(--line);
+    background:var(--paper); color:var(--ink-soft); font-family:'Fredoka',sans-serif;
+    font-weight:600; font-size:13px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; padding:0; flex:0 0 auto;
+  }
+  .panel-help:hover{ border-color:var(--purple); color:var(--purple-deep); background:var(--purple-soft); }
+  .help-pop{
+    position:fixed; display:none; z-index:1200; max-width:280px;
+    background:var(--panel); border:2px solid var(--line); border-radius:12px;
+    padding:10px 12px; box-shadow:0 12px 28px rgba(46,42,59,.22);
+  }
+  .help-pop.show{ display:block; }
+  .help-pop .tray-note, .help-pop .hint{ margin-top:0; }
+  .modal-veil{
+    position:fixed; inset:0; z-index:3000; background:rgba(46,42,59,.35);
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .collapse-modal{
+    background:var(--panel); border:2px solid var(--ink); border-radius:16px;
+    padding:18px 20px; max-width:320px; width:100%;
+    box-shadow:0 18px 40px rgba(46,42,59,.28);
+    font-family:'Nunito',sans-serif; display:flex; flex-direction:column; gap:12px;
+  }
+  .collapse-modal .cm-title{ font-family:'Fredoka',sans-serif; font-weight:600; font-size:16px; }
+  .collapse-modal .cm-rows{ display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; }
+  .collapse-modal .cm-lbl{
+    font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft);
+  }
+  .expr-preview{
+    display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap; width:max-content; max-width:100%;
+    background:var(--paper); border:2px solid var(--line); border-radius:10px; padding:6px 10px;
+    font-family:'Fredoka',sans-serif; font-weight:500; font-size:14px; color:var(--ink);
+  }
+  .expr-preview.keep{ border-color:var(--teal); background:var(--teal-soft); color:var(--teal-deep); }
+  .expr-preview .chip{
+    background:rgba(124,111,224,.16); color:var(--purple-deep); border-radius:7px;
+    padding:0 6px; font-family:'Nunito',sans-serif; font-weight:700; font-size:12px;
+  }
+  .collapse-modal .cm-note{ font-size:12.5px; color:var(--ink-soft); }
+  .collapse-modal .cm-note .chip{
+    background:rgba(124,111,224,.16); color:var(--purple-deep); border-radius:6px;
+    padding:0 5px; font-family:'Nunito',sans-serif; font-weight:700; font-size:11.5px;
+  }
+  .collapse-modal .cm-btns{ display:flex; gap:8px; justify-content:flex-end; margin-top:2px; }
+  .btn.danger{ background:var(--coral); color:#fff; border-color:var(--coral-deep); box-shadow:0 3px 0 var(--coral-deep); }
+  .block.labelrow .grip{opacity:.3}
+  .block.labelrow .grip:hover{opacity:.8}
+  .block.dragging{
+    cursor:grabbing; transition:none;
+    transform:rotate(1.5deg) scale(1.03);
+    box-shadow:0 10px 18px rgba(46,42,59,.18);
+    z-index:6;
+  }
+  .block.placeholder{
+    background:transparent; border:2px dashed var(--line);
+    box-shadow:none; transform:none; cursor:default;
+  }
+  .block .chip{
+    background:rgba(255,255,255,.75); border-radius:7px; padding:0 6px;
+    font-family:'Nunito',sans-serif; font-weight:700; font-size:12px;
+  }
+  .block .flagref{
+    display:inline-flex; align-items:center; gap:4px;
+    background:var(--sun-soft); color:var(--sun-deep); border:1.5px solid var(--sun);
+    border-radius:999px; padding:0 8px; font-size:12px;
+  }
+  .block.assign{background:var(--purple-soft); color:var(--purple-deep)}
+  .block.action{background:var(--teal-soft); color:var(--teal-deep)}
+  .block.check{background:var(--sun-soft); color:var(--sun-deep)}
+  .block.jump{background:var(--coral-soft); color:var(--coral-deep)}
+  .block.labelrow{background:transparent; padding:4px 0 0 6px}
+  .block.labelrow .flag{
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--sun-soft); color:var(--sun-deep); border:2px solid var(--sun);
+    font-family:'Fredoka',sans-serif; font-weight:500; font-size:13px;
+    padding:2px 12px; border-radius:999px;
+    transition:transform .2s, box-shadow .2s;
+  }
+  .block.labelrow .flag.landed{transform:scale(1.12); box-shadow:0 0 0 4px var(--sun-soft)}
+  .block.active{transform:scale(1.04); box-shadow:0 4px 0 rgba(46,42,59,.10)}
+  .block.assign.active{border-color:var(--purple)}
+  .block.action.active{border-color:var(--teal)}
+  .block.check.active{border-color:var(--sun)}
+  .block.jump.active{border-color:var(--coral)}
+  .block.labelrow.active{transform:scale(1.06); box-shadow:none}
+  .block.zap{animation:zap .18s}
+  @keyframes zap{50%{transform:scale(1.05)}}
+
+  /* robot */
+  #robot{
+    position:absolute; left:-50px; width:42px; height:46px; top:0;
+    transition:top .45s cubic-bezier(.5,1.4,.5,1), left .45s;
+    z-index:3;
+  }
+  /* ------- Beep's nemesis: severing a flag summons him to zap its ropes ------- */
+  #nemesis{
+    position:absolute; left:0; width:42px; height:46px; top:0;
+    z-index:3; opacity:0; transform:scale(.2) rotate(20deg); pointer-events:none;
+    transition:top .5s cubic-bezier(.5,1.4,.5,1), left .5s cubic-bezier(.5,1.4,.5,1),
+               opacity .25s, transform .25s;
+  }
+  #nemesis.here{ opacity:1; transform:none; }
+  #nemesis.zapping svg{ animation:cackle .1s 4 alternate; }
+  #nemesis .zap-flash{
+    position:absolute; left:-6px; top:6px; font-size:30px; opacity:0; transform:scale(.3);
+    text-shadow:0 0 6px #fff, 0 0 14px var(--sun);
+  }
+  #nemesis.zapping .zap-flash{ animation:zapflash .4s ease-out; }
+  @keyframes cackle{
+    from{ transform:rotate(-10deg) translateY(-1px); }
+    to{ transform:rotate(10deg) translateY(1px); }
+  }
+  @keyframes zapflash{
+    0%{ opacity:0; transform:scale(.3) rotate(-25deg); }
+    25%{ opacity:1; transform:scale(1.8) rotate(8deg); }
+    55%{ opacity:1; transform:scale(1.2) rotate(-6deg); }
+    100%{ opacity:0; transform:scale(.6) rotate(10deg) translateY(6px); }
+  }
+  #wires path.rope-zap{
+    stroke:var(--coral); stroke-width:5;
+    stroke-dasharray:5 6; animation:crackle .08s 5 linear;
+    filter:drop-shadow(0 0 4px var(--sun)) drop-shadow(0 0 8px var(--coral));
+  }
+  #wires path.rope-dead{ opacity:0; transition:opacity .3s; }
+  /* Phase 10: chips are tappable references - give them button manners */
+  .block .flagref, .block .flag, .block .tgt-chip, .block .sprite-chip{
+    cursor:pointer; transition:box-shadow .15s;
+  }
+  .block .flagref:hover, .block .flag:hover, .block .tgt-chip:hover, .block .sprite-chip:hover{
+    box-shadow:0 0 0 2.5px var(--purple-soft);
+  }
+  .flagref.hint{ animation:hintpulse .42s 3; }
+  @keyframes hintpulse{ 50%{ background:var(--sun); } }
+  .leaf-pop .flagedit{ width:140px; text-align:left; }
+  .leaf-pop input.bad{ border-color:var(--coral) !important; background:var(--coral-soft); }
+  .leaf-pop .pop-note{ font-size:11px; color:var(--ink-soft); margin-top:6px; }
+  @keyframes crackle{
+    0%{ stroke-dashoffset:0; stroke:var(--coral); }
+    50%{ stroke:var(--sun); }
+    100%{ stroke-dashoffset:16; stroke:var(--coral); }
+  }
+  #robot.walking svg{animation:bob .35s infinite alternate}
+  #robot.fast{transition:top .04s linear}
+  #robot.leaping{transition:top .55s cubic-bezier(.3,-.3,.3,1.4)}
+  #robot.leaping svg{animation:leapspin .55s}
+  #robot.home svg{animation:none}
+  @keyframes bob{from{transform:translateY(0) rotate(-2deg)}to{transform:translateY(-3px) rotate(2deg)}}
+  @keyframes leapspin{
+    0%{transform:scale(1) rotate(0deg)}
+    35%{transform:scale(1.15) rotate(-14deg)}
+    70%{transform:scale(1.1) rotate(10deg)}
+    100%{transform:scale(1) rotate(0deg)}
+  }
+  #bubble{
+    position:absolute; left:-6px; top:-8px; transform:translateY(-100%);
+    background:#fff; border:2px solid var(--ink); border-radius:12px;
+    padding:5px 11px; font-family:'Fredoka',sans-serif; font-weight:500; font-size:14px;
+    white-space:nowrap; opacity:0; transition:opacity .2s; z-index:4; pointer-events:none;
+  }
+  #bubble::after{
+    content:''; position:absolute; left:16px; bottom:-7px; width:10px; height:10px;
+    background:#fff; border-right:2px solid var(--ink); border-bottom:2px solid var(--ink);
+    transform:rotate(45deg);
+  }
+  #bubble.show{opacity:1}
+
+  /* ------- stage ------- */
+  .stage{
+    position:relative; height:240px; border-radius:12px; overflow:hidden;
+    background:#DFF1FF;
+    border:2px solid var(--line);
+  }
+  #ball{
+    position:absolute; width:22px; height:22px; border-radius:50%;
+    background:var(--coral); border:3px solid var(--coral-deep);
+    transition:left .5s linear, top .5s linear;
+  }
+  #ball::after{content:''; position:absolute; left:4px; top:4px; width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,.75)}
+  #paddle{
+    position:absolute; width:60px; height:12px; border-radius:7px;
+    background:var(--teal); border:2px solid var(--teal-deep);
+    transition:left .3s ease-out;
+  }
+  .brick{
+    position:absolute; width:46px; height:16px; border-radius:6px;
+    background:var(--purple); border:2px solid var(--purple-deep);
+    transition:transform .3s, opacity .3s;
+  }
+  .brick.gone{transform:scale(0); opacity:0}
+  #ball.gone, #paddle.gone{ transform:scale(0); opacity:0; }
+  .keys-note{
+    position:absolute; right:8px; bottom:6px; font-size:11.5px; color:var(--ink-soft);
+    background:rgba(255,255,255,.7); border-radius:8px; padding:1px 8px;
+  }
+
+  /* ------- backpack ------- */
+  .pack{display:flex; gap:8px; flex-wrap:wrap}
+  .tile{
+    background:var(--paper); border:2px solid var(--line); border-radius:12px;
+    padding:6px 10px; min-width:74px; text-align:center; transition:border-color .2s, background .2s;
+  }
+  .tile .name{font-size:11px; font-weight:700; color:var(--ink-soft); letter-spacing:.02em}
+  input.val{
+    width:100%; margin-top:2px; text-align:center; background:#fff;
+    border:2px solid var(--line); border-radius:8px; padding:2px 4px;
+    font-family:'Fredoka',sans-serif; font-weight:600; font-size:19px; color:var(--ink);
+    -moz-appearance:textfield;
+  }
+  input.val:hover{ border-color:var(--teal) }
+  input.val:focus{ outline:none; border-color:var(--purple); background:var(--purple-soft) }
+  .tile.flash{border-color:var(--purple); background:var(--purple-soft)}
+
+  /* ------- controls ------- */
+  .controls{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  .btn{
+    font-family:'Fredoka',sans-serif; font-weight:500; font-size:15px;
+    border:2px solid var(--ink); border-radius:12px; background:#fff; color:var(--ink);
+    padding:7px 15px; cursor:pointer; box-shadow:0 3px 0 var(--ink);
+    transition:transform .08s, box-shadow .08s;
+  }
+  .btn:active{transform:translateY(3px); box-shadow:0 0 0 var(--ink)}
+  .btn.primary{background:var(--sun)}
+  .btn.teal{background:var(--teal); color:#fff; border-color:var(--teal-deep); box-shadow:0 3px 0 var(--teal-deep)}
+  .btn.on{background:var(--ink); color:#fff}
+  .btn.teal.on{background:var(--teal-deep)}
+  .hint{margin-top:10px; font-size:13.5px; color:var(--ink-soft)}
+  .hint b{color:var(--ink)}
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important; animation:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Beep runs your code</h1>
+    <p>Beep the robot runs your breakout game, one block at a time. Arrow keys move the paddle.</p>
+  </header>
+
+  <div class="board">
+    <!-- ============ SCRIPT ============ -->
+    <section class="panel">
+      <h2>Script</h2>
+      <div class="track-wrap">
+        <div class="blocks" id="blocksBox">
+          <svg id="wires" aria-hidden="true">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#FF7A59" stroke="none" opacity="1"/>
+              </marker>
+            </defs>
+          </svg>
+          <!-- blocks injected here -->
+          <div id="robot" class="home" aria-hidden="true">
+            <svg viewBox="0 0 42 46" width="42" height="46">
+              <line x1="21" y1="8" x2="21" y2="2" stroke="#2E2A3B" stroke-width="2.5"/>
+              <circle cx="21" cy="2.5" r="2.5" fill="#FF7A59"/>
+              <rect x="6" y="8" width="30" height="24" rx="9" fill="#9FE6D8" stroke="#2E2A3B" stroke-width="2.5"/>
+              <circle cx="15" cy="19" r="3" fill="#2E2A3B"/>
+              <circle cx="27" cy="19" r="3" fill="#2E2A3B"/>
+              <path d="M15 25 Q21 29 27 25" fill="none" stroke="#2E2A3B" stroke-width="2.5" stroke-linecap="round"/>
+              <rect x="12" y="34" width="6" height="9" rx="3" fill="#2E2A3B"/>
+              <rect x="24" y="34" width="6" height="9" rx="3" fill="#2E2A3B"/>
+            </svg>
+            <div id="bubble"></div>
+          </div>
+          <div id="nemesis" aria-hidden="true">
+            <svg viewBox="0 0 42 46" width="42" height="46">
+              <line x1="14" y1="9" x2="10" y2="2" stroke="#2E2A3B" stroke-width="2.5"/>
+              <line x1="28" y1="9" x2="32" y2="2" stroke="#2E2A3B" stroke-width="2.5"/>
+              <circle cx="9.5" cy="2" r="2" fill="#FF3B3B"/>
+              <circle cx="32.5" cy="2" r="2" fill="#FF3B3B"/>
+              <path d="M8 12 L34 8 L36 32 L6 34 Z" fill="#4A3FA3" stroke="#2E2A3B" stroke-width="2.5"/>
+              <circle cx="21" cy="20" r="5.5" fill="#fff"/>
+              <circle cx="21" cy="20" r="2.8" fill="#FF3B3B"/>
+              <path d="M13 14 L20 16" stroke="#2E2A3B" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M29 13 L22 16" stroke="#2E2A3B" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M14 27 L18 29 L22 26 L26 29 L29 26" fill="none" stroke="#2E2A3B" stroke-width="2" stroke-linecap="round"/>
+              <rect x="11" y="35" width="6" height="9" rx="2" fill="#2E2A3B"/>
+              <rect x="25" y="35" width="6" height="9" rx="2" fill="#2E2A3B"/>
+            </svg>
+            <span class="zap-flash">⚡</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ STAGE + PACK + CONTROLS ============ -->
+    <div class="side">
+      <section class="panel">
+        <h2>Stage</h2>
+        <div class="stage" id="stage">
+          <div class="brick" id="brick1"></div>
+          <div class="brick" id="brick2"></div>
+          <div class="brick" id="brick3"></div>
+          <div id="ball"></div>
+          <div id="paddle"></div>
+          <span class="keys-note">← → move the paddle</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Beep's backpack</h2>
+        <div class="pack" id="pack"></div>
+      </section>
+
+      <section class="panel">
+        <h2>New pieces</h2>
+        <div class="palette" id="palette"></div>
+        <p class="tray-note">A shelf of <b>fresh pieces</b>: drag one in &mdash; it <b>copies itself</b>, so the shelf never runs out. Whatever it replaces moves to your <b>spare tiles</b>. Drop a purple <b>operation</b> on a piece to wrap it. <b>Statements</b> drop straight into the program &mdash; new jumps grab the nearest flag. Changed your mind? Drop the copy on <b>Trash</b>.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Spare tiles</h2>
+        <div class="tray-row">
+          <div class="tray" id="tray"></div>
+          <div class="trash-zone" id="trash" aria-label="Trash">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/>
+              <path d="M5 7l1 13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4h6v3"/>
+            </svg>
+            <span>Trash</span>
+          </div>
+        </div>
+        <p class="tray-note">Tap a <b>purple = statement</b> to open it. <b>Drag</b> a piece to move it &mdash; every drop <b>swaps</b>, so no slot is ever empty. <b>Tap</b> a piece for its menu: change its value, or <b>wrap</b> it in a <b>+ / &minus;</b>. Tap the <b>sign</b> to flip it or wrap the whole group. Drag an operand to <b>Trash</b> (or the spare tiles) to <b>collapse</b> it back. Whole <b>statements</b> ride the same rules: drag a block here to <b>keep it</b>, to Trash to <b>delete</b> it, or <b>tap its grip</b> for duplicate&nbsp;/&nbsp;stash&nbsp;/&nbsp;delete. Deleting a flag that wires point at leaves those jumps <b>pointing at nothing</b> &mdash; Beep will stop, confused, if he tries one.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Run it</h2>
+        <div class="controls">
+          <button class="btn primary" id="btnStep">➜ Step</button>
+          <button class="btn teal" id="btnWatch">👀 Watch</button>
+          <button class="btn" id="btnPlay">⚡ Play fast</button>
+          <button class="btn" id="btnReset">↺ Reset</button>
+        </div>
+        <p class="hint"><b>Play fast</b> to play with ← →. Then <b>Step</b> or <b>Watch</b> to see how it works: yellow blocks ask a question, and if the answer is yes, Beep <b>jumps along the wire</b> to a flag. Wires on the <b>right</b> jump down to little jobs; wires on the <b>left</b> jump back up. <b>Drag any block or flag</b> to rearrange the program and see what breaks!</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ---------- game state (Beep's backpack) ---------- */
+  const START = { paddleX: 40, ballX: 50, ballY: 55, ballVelocityX: 4, ballVelocityY: 3,
+                  brick1X: 10, brick2X: 40, brick3X: 70 };
+  const state = {};
+  const VARS = Object.keys(START);
+  // Editable range + step per variable. Positions live in 0..100; velocities in
+  // -12..12. Any variable without an entry falls back to a general range, so
+  // every backpack variable is automatically editable.
+  const VAR_META = {
+    paddleX:{min:0,max:100,step:5}, ballX:{min:0,max:100,step:5}, ballY:{min:0,max:100,step:5},
+    ballVelocityX:{min:-12,max:12,step:1}, ballVelocityY:{min:-12,max:12,step:1},
+    brick1X:{min:0,max:100,step:5}, brick2X:{min:0,max:100,step:5}, brick3X:{min:0,max:100,step:5}
+  };
+  function metaOf(name){ return VAR_META[name] || { min:-99, max:99, step:1 }; }
+  const STEP_PAUSE = 1050;         // how long Beep thinks at each block
+  const PADDLE_STEP = 8;
+
+  /* sprite geometry (logical coords are 0..100 in both axes) */
+  const BALL_W = 22, PADDLE_W = 60, PADDLE_H = 12, BRICK_W = 46, BRICK_H = 16;
+  const BRICK_Y = 14, PADDLE_BOTTOM = 12;
+
+  // Phase 10: EVERY sprite can be despawned, so aliveness is per-sprite.
+  // The variables outlive the sprite - despawn hides it and kills its touches,
+  // but the backpack numbers keep computing (instructive on its own).
+  const SPRITES = ['ball', 'paddle', 'brick1', 'brick2', 'brick3'];
+  const spriteAlive = {};
+  SPRITES.forEach(function(k){ spriteAlive[k] = true; });
+
+  /* ---------- engine functions the blocks call ---------- */
+  const stage = document.getElementById('stage');
+  function px(){ return { W: stage.clientWidth - 4, H: stage.clientHeight - 4 }; }
+  // logical 0..100 coordinate -> pixel offset, accounting for sprite size
+  function toPx(pct, size, axis){ return pct/100*(axis - size); }
+  function ballBox(){
+    const d = px();
+    return { x: toPx(state.ballX, BALL_W, d.W), y: toPx(state.ballY, BALL_W, d.H), w: BALL_W, h: BALL_W };
+  }
+  function paddleBox(){
+    const d = px();
+    return { x: toPx(state.paddleX, PADDLE_W, d.W), y: d.H-PADDLE_BOTTOM-PADDLE_H, w: PADDLE_W, h: PADDLE_H };
+  }
+  function brickBox(n){
+    const d = px();
+    return { x: toPx(state['brick'+n+'X'], BRICK_W, d.W), y: BRICK_Y, w: BRICK_W, h: BRICK_H };
+  }
+  function overlaps(a, b){
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  const keys = {};
+  function isKeyPressed(k){ return !!keys[k]; }
+  function isTouching(what){
+    if (!spriteAlive.ball) return false;         // no ball, nothing touches
+    if (what === 'sideWall') return (state.ballX <= 0 && state.ballVelocityX < 0) ||
+                                    (state.ballX >= 100 && state.ballVelocityX > 0);
+    if (what === 'topOrFloor') return (state.ballY <= 0 && state.ballVelocityY < 0) ||
+                                      (state.ballY >= 100 && state.ballVelocityY > 0);
+    if (what === 'paddle') return spriteAlive.paddle && state.ballVelocityY > 0 && overlaps(ballBox(), paddleBox());
+    if (what === 'brick1') return spriteAlive.brick1 && overlaps(ballBox(), brickBox(1));
+    if (what === 'brick2') return spriteAlive.brick2 && overlaps(ballBox(), brickBox(2));
+    if (what === 'brick3') return spriteAlive.brick3 && overlaps(ballBox(), brickBox(3));
+    return false;
+  }
+  function moveTo(sprite){
+    const d = px();
+    if (sprite === 'ball'){
+      const el = document.getElementById('ball');
+      el.style.left = toPx(state.ballX, BALL_W, d.W) + 'px';
+      el.style.top  = toPx(state.ballY, BALL_W, d.H) + 'px';
+    } else if (sprite === 'paddle'){
+      const el = document.getElementById('paddle');
+      el.style.left = toPx(state.paddleX, PADDLE_W, d.W) + 'px';
+      el.style.top  = (d.H-PADDLE_BOTTOM-PADDLE_H) + 'px';
+    }
+  }
+  function placeBricks(){
+    const d = px();
+    [1,2,3].forEach(function(n){
+      const el = document.getElementById('brick'+n);
+      el.style.left = toPx(state['brick'+n+'X'], BRICK_W, d.W) + 'px';
+      el.style.top  = BRICK_Y + 'px';
+    });
+  }
+  function despawnSprite(k){
+    spriteAlive[k] = false;
+    document.getElementById(k).classList.add('gone');
+  }
+  function respawnAll(){
+    SPRITES.forEach(function(k){
+      spriteAlive[k] = true;
+      document.getElementById(k).classList.remove('gone');
+    });
+  }
+
+  /* ---------- expression + statement model (the evaluator) ----------
+     Statements used to be hand-written closures that baked in their operands.
+     They are now data — a small AST the interpreter walks — so an operand can
+     later be dragged between slots and have both its DISPLAY and its BEHAVIOR
+     follow from the same tree. This is behavior-identical to the old closures;
+     only the representation changed. */
+  function chip(t){ return '<span class="chip">'+t+'</span>'; }
+  // Phase 10: an assign's LHS is a tappable REFERENCE chip (repoint on tap)
+  function tgtChip(name){ return '<span class="chip tgt-chip">'+name+'</span>'; }
+  function flagref(name){
+    // Phase 9: a reference may dangle (its flag was deleted) - render it frayed
+    const lost = labelIndex(name) === -1;
+    return '<span class="flagref'+(lost ? ' lost' : '')+'">⚑ '+name+'</span>';
+  }
+
+  // expression / condition constructors
+  function v(name){ return { type:'var', name:name }; }
+  function num(x){ return { type:'num', value:x }; }
+  function bin(op, left, right){ return { type:'bin', op:op, left:left, right:right }; }
+  function keyCond(key, arrowLabel){ return { type:'key', key:key, arrowLabel:arrowLabel }; }
+  function touchCond(target, label){ return { type:'touch', target:target, label:label }; }
+
+  function opGlyph(op){ return op === '-' ? '−' : '+'; }
+  function valStr(x){ return x < 0 ? '('+x+')' : String(x); }
+
+  // evaluate an expression/condition against the current backpack -> number | boolean
+  function evalExpr(e){
+    switch(e.type){
+      case 'num':   return e.value;
+      case 'var':   return state[e.name];
+      case 'bin':   { const l = evalExpr(e.left), r = evalExpr(e.right);
+                      return e.op === '-' ? l - r : l + r; }
+      case 'key':   return isKeyPressed(e.key);
+      case 'touch': return isTouching(e.target);
+    }
+    return 0;
+  }
+  // render an expression as block HTML (chips for variables, bare numbers)
+  function htmlExpr(e, nested){
+    switch(e.type){
+      case 'num': return String(e.value);
+      case 'var': return chip(e.name);
+      case 'bin': { const s = htmlExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + htmlExpr(e.right, true);
+                    return nested ? '(' + s + ')' : s; }
+    }
+    return '';
+  }
+  // render an expression with current values substituted, for the thought bubble
+  function bubbleExpr(e, nested){
+    switch(e.type){
+      case 'num': return valStr(e.value);
+      case 'var': return valStr(state[e.name]);
+      case 'bin': { const s = bubbleExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + bubbleExpr(e.right, true);
+                    return nested ? '(' + s + ')' : s; }
+    }
+    return '';
+  }
+  function condHtml(c){
+    return c.type === 'key' ? chip(c.arrowLabel) + ' isKeyPressed'
+                            : chip('ball') + ' isTouching ' + chip(c.label);
+  }
+  function condNoBubble(c){
+    return c.type === 'key' ? c.arrowLabel + ' pressed? no'
+                            : 'touching ' + c.label + '? no';
+  }
+  function commandHtml(node){
+    if (node.name === 'movePaddle') return chip('paddle') + ' moveTo ' + chip('paddleX');
+    if (node.name === 'moveBall')   return chip('ball') + ' moveTo ' + chip('ballX') + ', ' + chip('ballY');
+    return 'despawn <span class="chip sprite-chip">'+node.sprite+'</span>';
+  }
+
+  // render a whole statement to its block HTML
+  function renderStmt(node){
+    switch(node.type){
+      case 'label':   return '<span class="flag">⚑ '+node.name+'</span>';
+      case 'goto':    return 'jump to ' + flagref(node.target);
+      case 'ifjump':  return 'if ' + condHtml(node.cond) + ' jump to ' + flagref(node.target);
+      case 'assign':  return tgtChip(node.target) + ' = ' + htmlExpr(node.expr);
+      case 'command': return commandHtml(node);
+    }
+    return '';
+  }
+
+  // run a statement -> { bubble, flash?, jump?, pause? } (same result shape as before)
+  function execStmt(node){
+    switch(node.type){
+      case 'label':  return { bubble:'⚑ '+node.name, pause:400 };
+      case 'goto':   return { bubble:'wheee → ⚑ '+node.target+'!', jump:node.target };
+      case 'ifjump':
+        if (evalExpr(node.cond)) return { bubble:'yes → ⚑ '+node.target+'!', jump:node.target };
+        return { bubble: condNoBubble(node.cond) };
+      case 'assign': return execAssign(node);
+      case 'command':return execCommand(node);
+    }
+    return { bubble:'' };
+  }
+  function execAssign(node){
+    const old   = state[node.target];
+    const shown = bubbleExpr(node.expr);      // capture operand values BEFORE the write
+    let v = evalExpr(node.expr);
+    if (node.clamp) v = Math.min(Math.max(v, node.clamp[0]), node.clamp[1]);
+    state[node.target] = v;
+    if (node.clamp && v === old) return { bubble:'at the edge!', flash:node.target };
+    return { bubble: shown + ' = ' + v, flash:node.target };
+  }
+  function execCommand(node){
+    if (node.name === 'movePaddle'){ moveTo('paddle'); return { bubble:'scoot!' }; }
+    if (node.name === 'moveBall'){   moveTo('ball');   return { bubble:'wheee!' }; }
+    despawnSprite(node.sprite);      return { bubble:'bye bye '+node.sprite+'!' };
+  }
+
+  // wrap a statement node with the fields the interpreter/renderer expect
+  const KIND_FOR = { label:'label', goto:'jump', ifjump:'check', assign:'assign', command:'action' };
+  function mk(node){
+    node.kind = KIND_FOR[node.type];
+    if (node.type === 'goto' || node.type === 'ifjump') node.jumpTo = node.target;
+    node.exec = function(){ return execStmt(node); };
+    return node;
+  }
+
+  /* ---------- block builders (thin wrappers over the AST) ---------- */
+  function label(name){ return mk({ type:'label', name:name }); }
+  function goto_(name){ return mk({ type:'goto', target:name }); }
+  function ifKeyJump(arrow, keyName, name){
+    return mk({ type:'ifjump', cond: keyCond(keyName, arrow), target:name });
+  }
+  function ifTouchJump(what, whatLabel, name){
+    return mk({ type:'ifjump', cond: touchCond(what, whatLabel), target:name });
+  }
+  function nudgePaddle(sign){
+    return mk({ type:'assign', target:'paddleX', clamp:[0,100],
+                expr: bin(sign>0?'+':'-', v('paddleX'), num(PADDLE_STEP)) });
+  }
+  function flipVelocity(vname){
+    return mk({ type:'assign', target:vname, expr: bin('-', num(0), v(vname)) });
+  }
+  function despawn_(sprite){ return mk({ type:'command', name:'despawn', sprite:sprite }); }
+  function movePaddle(){ return mk({ type:'command', name:'movePaddle' }); }
+  function moveBall(){ return mk({ type:'command', name:'moveBall' }); }
+  function addAssign(target, a, b){ return mk({ type:'assign', target:target, expr: bin('+', v(a), v(b)) }); }
+
+  // Phase 9: statements are cloneable material, like expression nodes
+  function cloneStmt(b){
+    if (b.type === 'label')  return mk({ type:'label', name:b.name });
+    if (b.type === 'goto')   return mk({ type:'goto', target:b.target });
+    if (b.type === 'ifjump') return mk({ type:'ifjump', cond:cloneNode(b.cond), target:b.target });
+    if (b.type === 'assign'){
+      const n = { type:'assign', target:b.target, expr:cloneNode(b.expr) };
+      if (b.clamp) n.clamp = b.clamp.slice();
+      return mk(n);
+    }
+    const c = { type:'command', name:b.name };
+    if (b.sprite !== undefined) c.sprite = b.sprite;
+    return mk(c);
+  }
+  // fresh flag names: strip a trailing number, count up until unused
+  function uniqueLabelName(base){
+    const root = base.replace(/[0-9]+$/, '') || 'flag';
+    if (labelIndex(root) === -1) return root;
+    let k = 2;
+    while (labelIndex(root + k) !== -1) k++;
+    return root + k;
+  }
+
+  /* ---------- the program ---------- */
+  const program = [
+    label('start'),
+    ifKeyJump('←','ArrowLeft','goLeft'),
+    ifKeyJump('→','ArrowRight','goRight'),
+    label('move'),
+    movePaddle(),
+    addAssign('ballX','ballX','ballVelocityX'),
+    addAssign('ballY','ballY','ballVelocityY'),
+    moveBall(),
+    ifTouchJump('sideWall','side wall','bounceX'),
+    ifTouchJump('topOrFloor','top or floor','bounceY'),
+    ifTouchJump('paddle','paddle','bounceY'),
+    ifTouchJump('brick1','brick1','hit1'),
+    ifTouchJump('brick2','brick2','hit2'),
+    ifTouchJump('brick3','brick3','hit3'),
+    goto_('start'),
+
+    label('goLeft'),
+    nudgePaddle(-1),
+    goto_('move'),
+
+    label('goRight'),
+    nudgePaddle(+1),
+    goto_('move'),
+
+    label('bounceX'),
+    flipVelocity('ballVelocityX'),
+    goto_('start'),
+
+    label('bounceY'),
+    flipVelocity('ballVelocityY'),
+    goto_('start'),
+
+    label('hit1'),
+    despawn_('brick1'),
+    goto_('bounceY'),
+
+    label('hit2'),
+    despawn_('brick2'),
+    goto_('bounceY'),
+
+    label('hit3'),
+    despawn_('brick3'),
+    goto_('bounceY')
+  ];
+
+  // Phase 4 works at the level of whole expression SUBTREES, not variable names.
+  // A "slot" is a position (parent + field) that currently holds an expression
+  // node; a drop swaps the two nodes. We snapshot each assignment's initial tree
+  // (deep-cloned) so Reset can restore it after arbitrary surgery.
+  function cloneNode(n){
+    if (n.type === 'bin')   return { type:'bin', op:n.op, left:cloneNode(n.left), right:cloneNode(n.right) };
+    if (n.type === 'var')   return { type:'var', name:n.name };
+    if (n.type === 'num')   return { type:'num', value:n.value };
+    if (n.type === 'key')   return { type:'key', key:n.key, arrowLabel:n.arrowLabel };
+    if (n.type === 'touch') return { type:'touch', target:n.target, label:n.label };
+    return { type:n.type };
+  }
+  // each expression/condition node has a value TYPE; slots only accept a matching one
+  function typeOf(node){
+    return (node.type === 'key' || node.type === 'touch') ? 'boolean' : 'number';
+  }
+  program.forEach(function(b){
+    if (b.type === 'assign') b._initialExpr = cloneNode(b.expr);
+    if (b.type === 'ifjump') b._initialCond = cloneNode(b.cond);
+  });
+  // Phase 9: Reset restores the whole LIST (added statements vanish, deleted
+  // ones return), exactly like the tray going back to its seed
+  const programSeed = program.map(cloneStmt);
+
+  function labelIndex(name){
+    for (let k = 0; k < program.length; k++){
+      if (program[k].kind === 'label' && program[k].name === name) return k;
+    }
+    return -1;  // lost flag (Phase 9): dangling is allowed; each caller decides
+  }
+
+  /* ---------- dom ---------- */
+  const blocksBox = document.getElementById('blocksBox');
+  const robot   = document.getElementById('robot');
+  const bubble  = document.getElementById('bubble');
+  const wires   = document.getElementById('wires');
+  const btnStep = document.getElementById('btnStep');
+  const btnWatch= document.getElementById('btnWatch');
+  const btnPlay = document.getElementById('btnPlay');
+  const btnReset= document.getElementById('btnReset');
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+
+  const GRIP_SVG = '<svg viewBox="0 0 11 16" aria-hidden="true">'
+    + '<circle cx="3" cy="3" r="1.4" fill="currentColor"/><circle cx="8" cy="3" r="1.4" fill="currentColor"/>'
+    + '<circle cx="3" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/>'
+    + '<circle cx="3" cy="13" r="1.4" fill="currentColor"/><circle cx="8" cy="13" r="1.4" fill="currentColor"/></svg>';
+
+  // build block elements; each program entry carries its own element so
+  // identity survives reordering. Jump-ish blocks also get their own wire path.
+  // A grip handle on the left is the ONLY place that starts a whole-statement
+  // drag; the content area is left free for future sub-block interactions.
+  function buildBlock(b, beforeEl){
+    const el = document.createElement('div');
+    el.className = 'block ' + (b.kind === 'label' ? 'labelrow' : b.kind);
+
+    const grip = document.createElement('div');
+    grip.className = 'grip';
+    grip.setAttribute('aria-label', 'Drag to reorder');
+    grip.innerHTML = GRIP_SVG;
+
+    const content = document.createElement('div');
+    content.className = 'content';
+    content.innerHTML = renderStmt(b);
+
+    el.appendChild(grip);
+    el.appendChild(content);
+    blocksBox.insertBefore(el, beforeEl || robot);
+    b.el = el;
+    b.gripEl = grip;
+    b.contentEl = content;
+    grip.addEventListener('pointerdown', onPointerDown);
+    content.addEventListener('click', function(){
+      if (suppressClick) return;
+      setFocus(isFocusable(b) ? b : null);
+    });
+    if (b.jumpTo !== undefined){
+      const p = document.createElementNS(SVGNS, 'path');
+      if (b.kind === 'check') p.setAttribute('class', 'cond');
+      p.setAttribute('marker-end', 'url(#arrow)');
+      wires.appendChild(p);
+      b.wireEl = p;
+    }
+    return b;
+  }
+  program.forEach(function(b){ buildBlock(b); });
+
+  /* ---------- rendering helpers ---------- */
+  // Build one editable tile per backpack variable: a native number input with
+  // the variable's own min / max / step.
+  function buildPack(){
+    const pack = document.getElementById('pack');
+    pack.innerHTML = VARS.map(function(k){
+      const m = metaOf(k);
+      return '<div class="tile" id="tile-'+k+'">'
+           +   '<div class="name">'+k+'</div>'
+           +   '<input class="val" id="val-'+k+'" data-var="'+k+'" type="number" inputmode="numeric" '
+           +     'min="'+m.min+'" max="'+m.max+'" step="'+m.step+'" value="0" aria-label="'+k+'">'
+           + '</div>';
+    }).join('');
+  }
+  function renderPack(){
+    VARS.forEach(function(k){
+      const inp = document.getElementById('val-' + k);
+      if (inp && inp !== document.activeElement) inp.value = state[k];   // don't fight active typing
+    });
+  }
+  function flashTile(name){
+    const t = document.getElementById('tile-' + name);
+    if(!t) return;
+    t.classList.add('flash');
+    setTimeout(function(){ t.classList.remove('flash'); }, 500);
+  }
+  let lastRobotTarget = 0;   // which program row Beep is anchored to
+  function robotToBlock(i){
+    if (!program.length) return;
+    if (i < 0) i = 0;
+    if (i >= program.length) i = program.length - 1;
+    lastRobotTarget = i;
+    const target = program[i].el;
+    const top = target.offsetTop + target.offsetHeight/2 - 23;
+    robot.style.top = top + 'px';
+  }
+  function showBubble(text){
+    bubble.textContent = text;
+    bubble.classList.add('show');
+  }
+  function hideBubble(){ bubble.classList.remove('show'); }
+  function highlight(i){
+    program.forEach(function(b, j){ b.el.classList.toggle('active', j === i); });
+  }
+
+  /* wires: forward jumps arc down the right side, backward jumps arc up the left */
+  function drawWires(){
+    const W = blocksBox.clientWidth;
+    const base = blocksBox.getBoundingClientRect();
+    // geometry relative to blocksBox's top-left, which is the SVG's origin.
+    // (offsetTop can't be used across elements whose offsetParent differs — a
+    // flag inside a positioned label row reports coords relative to that row.)
+    function rectOf(el){
+      const r = el.getBoundingClientRect();
+      return { left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height };
+    }
+    program.forEach(function(b){
+      if (b.jumpTo === undefined) return;
+      const tIdx = labelIndex(b.jumpTo);
+      // Phase 9: a dangling jump has no rope - the missing wire IS the signal
+      if (tIdx === -1){ b.wireEl.setAttribute('d', ''); return; }
+      // the label row is transparent, so ropes show through it. Left-exit ropes
+      // land on the grip; right-exit ropes land on the row's right edge — same
+      // arrow pattern, mirrored.
+      const tEl = program[tIdx].el;
+      const tGrip = tEl.querySelector('.grip') || tEl.querySelector('.flag') || tEl;
+      const g = rectOf(tGrip);
+      const row = rectOf(tEl);
+      const s = rectOf(b.el);
+      const y1 = s.top + s.height/2;
+      const y2 = g.top + g.height/2;      // grip is vertically centred in the row
+      const span = Math.abs(y2 - y1);
+      // The path ends at the arrow's BASE, one grip-width outside the anchor, and
+      // the last control sits further out at the same height — so the arrow points
+      // INTO the anchor and the rope meets its base edge horizontally (~90 degrees).
+      let d;
+      if (y2 > y1){
+        // forward (down): out the right side, into the label's right edge (arrow points left)
+        const x1 = s.left + s.width - 4;
+        const ex = row.left + row.width + g.width;
+        const capX = ex + 18;
+        const bulge = W + 10 + Math.min(24, span * 0.03);
+        d = 'M '+x1+' '+y1+' C '+bulge+' '+y1+', '+capX+' '+y2+', '+ex+' '+y2;
+      } else {
+        // backward (up): out the left side, into the grip (arrow points right)
+        const x1 = s.left + 4;
+        const ex = g.left - g.width;
+        const capX = ex - 18;
+        const bulge = -(14 + Math.min(30, span * 0.03));
+        d = 'M '+x1+' '+y1+' C '+bulge+' '+y1+', '+capX+' '+y2+', '+ex+' '+y2;
+      }
+      b.wireEl.setAttribute('d', d);
+    });
+  }
+  function wireZing(b){
+    if (!b || !b.wireEl) return;
+    b.wireEl.classList.remove('zing'); void b.wireEl.getBBox;
+    b.wireEl.classList.add('zing');
+    setTimeout(function(){ b.wireEl.classList.remove('zing'); }, 720);
+  }
+  function flagPulse(i){
+    const f = program[i] && program[i].el.querySelector('.flag');
+    if (!f) return;
+    f.classList.add('landed');
+    setTimeout(function(){ f.classList.remove('landed'); }, 450);
+  }
+
+  /* ---------- interpreter ---------- */
+  let pc = 0;               // which program row Beep will do next
+  let busy = false;         // an animated step is in flight
+  let mode = 'idle';        // idle | watch | play
+  let timer = null;
+  let current = null;       // the in-flight animated step: {i, phase, result, timers}
+
+  function stepAnimated(done){
+    if (busy) return;
+    if (!program.length){ showBubble('nothing to run!'); return; }
+    robot.classList.remove('confused');
+    busy = true;
+    const step = current = { i: pc, phase:'walk', result:null, timers:[] };
+    robot.classList.remove('home');
+    robot.classList.add('walking');
+    robotToBlock(step.i);
+    step.timers.push(setTimeout(function(){ execPhase(step, done); }, 480));
+  }
+
+  function execPhase(step, done){
+    step.phase = 'shown';
+    highlight(step.i);
+    step.result = program[step.i].exec();
+    renderPack();
+    if (step.result.flash) flashTile(step.result.flash);
+    if (step.result.bubble) showBubble(step.result.bubble);
+    step.timers.push(setTimeout(function(){ finishPhase(step, done); },
+                     step.result.pause || STEP_PAUSE));
+  }
+
+  // Resolve where a statement's result sends the program counter, and set pc.
+  // Returns the destination label index if it jumped, or null if it just
+  // advanced to the next row. This is the single source of truth for control
+  // flow, shared by all three run modes.
+  function nextPc(fromIndex, result){
+    if (result.jump !== undefined){
+      const t = labelIndex(result.jump);
+      if (t === -1){ pc = fromIndex; return 'lost'; }   // dangling: stay put
+      pc = t;
+      return t;
+    }
+    pc = (fromIndex + 1) % program.length;   // fall off the end: back to the top
+    return null;
+  }
+  // Phase 9: the flag is gone. Beep stops where he is, puzzles, and every run
+  // mode ends. pc stays ON the jump line - the bug is still there to step into,
+  // which is exactly the point.
+  function beepConfused(flagName){
+    stopAll();
+    robot.classList.remove('walking');
+    robot.classList.remove('leaping');
+    robot.classList.add('confused');
+    showBubble('⚑ ' + flagName + '? where did it go??');
+    setTimeout(function(){ robot.classList.remove('confused'); }, 1600);
+  }
+
+  function finishPhase(step, done){
+    hideBubble();
+    highlight(-1);
+    const t = nextPc(step.i, step.result);
+    if (t === 'lost'){
+      beepConfused(step.result.jump);
+      busy = false; current = null;
+      if (done) done();
+      return;
+    }
+    if (t !== null){
+      // the leap: this jump's wire lights up, Beep springs to the flag, flag pulses
+      step.phase = 'leap';
+      wireZing(program[step.i]);
+      robot.classList.remove('walking');
+      robot.classList.add('leaping');
+      robotToBlock(t);
+      step.timers.push(setTimeout(function(){
+        flagPulse(t);
+        robot.classList.remove('leaping');
+        robot.classList.add('home');
+        busy = false; current = null;
+        if (done) done();
+      }, 620));
+    } else {
+      robot.classList.remove('walking');
+      busy = false; current = null;
+      if (done) done();
+    }
+  }
+
+  /* Snap the in-flight step to completion so a fresh one can start immediately. */
+  function fastForward(){
+    if (!current) return;
+    const step = current;
+    step.timers.forEach(clearTimeout);
+    if (step.phase === 'walk'){
+      // the line hadn't run yet — run it now, minus the ceremony
+      step.result = program[step.i].exec();
+      renderPack();
+      if (step.result.flash) flashTile(step.result.flash);
+    }
+    hideBubble();
+    highlight(-1);
+    if (step.phase === 'leap'){
+      flagPulse(pc);                     // pc already resolved before the leap animation
+    } else {
+      const t = nextPc(step.i, step.result);
+      if (t === 'lost') beepConfused(step.result.jump);
+      else if (t !== null){ wireZing(program[step.i]); flagPulse(t); }
+    }
+    robot.classList.remove('walking');
+    robot.classList.remove('leaping');
+    busy = false; current = null;
+  }
+
+  function stepInstant(){
+    if (!program.length){ stopAll(); return; }
+    robot.classList.remove('confused');
+    const i = pc;
+    const b = program[i];
+    highlight(i);
+    b.el.classList.remove('zap'); void b.el.offsetWidth;
+    b.el.classList.add('zap');
+    robotToBlock(i);
+    const r = b.exec();
+    renderPack();
+    const t = nextPc(i, r);
+    if (t === 'lost'){ beepConfused(r.jump); return; }
+    if (t !== null){ wireZing(b); flagPulse(t); }
+  }
+
+  /* ---------- modes ---------- */
+  function stopAll(){
+    mode = 'idle';
+    clearInterval(timer); timer = null;
+    robot.classList.remove('fast');
+    btnWatch.classList.remove('on'); btnWatch.textContent = '👀 Watch';
+    btnPlay.classList.remove('on');  btnPlay.textContent  = '⚡ Play fast';
+  }
+
+  function watchLoop(){
+    if (mode !== 'watch') return;
+    stepAnimated(function(){
+      setTimeout(watchLoop, 120);
+    });
+  }
+
+  btnStep.addEventListener('click', function(){
+    stopAll();
+    if (busy) fastForward();
+    stepAnimated();
+  });
+
+  btnWatch.addEventListener('click', function(){
+    if (mode === 'watch'){ stopAll(); return; }
+    stopAll();
+    if (busy) fastForward();
+    mode = 'watch';
+    btnWatch.classList.add('on');
+    btnWatch.textContent = '⏸ Pause';
+    watchLoop();
+  });
+
+  btnPlay.addEventListener('click', function(){
+    if (mode === 'play'){ stopAll(); robot.classList.add('home'); return; }
+    stopAll();
+    if (busy) fastForward();
+    mode = 'play';
+    btnPlay.classList.add('on');
+    btnPlay.textContent = '⏸ Pause';
+    hideBubble();
+    robot.classList.remove('walking');
+    robot.classList.remove('home');
+    robot.classList.add('fast');
+    timer = setInterval(function(){
+      if (busy) return;           // let any animated step finish first
+      stepInstant();
+    }, 30);
+  });
+
+  btnReset.addEventListener('click', function(){
+    stopAll();
+    if (current){ current.timers.forEach(clearTimeout); current = null; }
+    VARS.forEach(function(k){ state[k] = START[k]; });
+    respawnAll();
+    pc = 0; busy = false;
+    hideBubble(); highlight(-1);
+    renderPack(); moveTo('ball'); moveTo('paddle'); placeBricks();
+    robot.classList.remove('walking'); robot.classList.remove('leaping');
+    robot.classList.remove('confused');
+    robot.classList.add('home');
+    resetExpr();
+    robotToBlock(0);
+  });
+
+  const pack = document.getElementById('pack');
+  function commitVar(inp){
+    const name = inp.dataset.var, m = metaOf(name);
+    if (inp.value === '' || inp.value === '-') return;   // allow a transient empty field
+    let v = Number(inp.value);
+    if (Number.isNaN(v)) return;
+    v = Math.min(m.max, Math.max(m.min, Math.round(v)));
+    state[name] = v;
+    flashTile(name);
+    moveTo('ball'); moveTo('paddle'); placeBricks();     // keep the stage in sync
+    renderPack();
+  }
+  pack.addEventListener('input', function(e){
+    const inp = e.target.closest('input[data-var]');
+    if (inp) commitVar(inp);
+  });
+  pack.addEventListener('change', function(e){
+    const inp = e.target.closest('input[data-var]');
+    if (inp) inp.value = state[inp.dataset.var];          // normalize display on blur / Enter
+  });
+
+  /* ---------- keyboard ---------- */
+  // arrows typed INTO an input belong to the input (cursor movement), not to
+  // the paddle sensors - neither record nor preventDefault them there
+  function inEditable(e){
+    const t = e.target;
+    return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  }
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+      if (inEditable(e)) return;
+      keys[e.key] = true;
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', function(e){
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') keys[e.key] = false;
+  });
+  window.addEventListener('blur', function(){ keys.ArrowLeft = false; keys.ArrowRight = false; });
+
+  /* ---------- drag to reorder (blocks AND flags) ---------- */
+  let drag = null;
+
+  function onPointerDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    const grip = e.currentTarget;
+    const el = grip.closest('.block');
+    if (!el) return;
+    e.preventDefault();
+    const r0 = el.getBoundingClientRect();
+    drag = {
+      el: el,
+      block: program.find(function(x){ return x.el === el; }),
+      grip: grip,
+      startX: e.clientX, startY: e.clientY,
+      grabDX: e.clientX - r0.left,
+      grabDY: e.clientY - r0.top,
+      w: el.offsetWidth,
+      active: false,
+      ph: null
+    };
+    grip.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e){
+    if (!drag) return;
+    if (!drag.active){
+      // total movement, not just vertical: dragging a block SIDEWAYS toward
+      // Trash or the spare tiles must activate too (Phase 9)
+      if (Math.abs(e.clientY - drag.startY) + Math.abs(e.clientX - (drag.startX || e.clientX)) < 6) return;
+      drag.active = true;
+      const ph = document.createElement('div');
+      ph.className = 'block placeholder';
+      ph.style.height = drag.el.offsetHeight + 'px';
+      blocksBox.insertBefore(ph, drag.el);
+      drag.ph = ph;
+      drag.el.classList.add('dragging');
+      drag.el.style.width = drag.w + 'px';
+      drag.el.style.left = '0';
+      drag.el.style.position = 'absolute';
+      highlightRopes(drag.block, true);   // darken this block's connections
+    }
+    const boxR = blocksBox.getBoundingClientRect();
+    drag.el.style.top  = (e.clientY - boxR.top - drag.grabDY) + 'px';
+    drag.el.style.left = (e.clientX - boxR.left - (drag.grabDX || 0)) + 'px';
+
+    // slide the placeholder to wherever the pointer would drop
+    let ref = null;
+    for (let k = 0; k < program.length; k++){
+      const o = program[k].el;
+      if (o === drag.el) continue;
+      const r = o.getBoundingClientRect();
+      if (e.clientY < r.top + r.height/2){ ref = o; break; }
+    }
+    blocksBox.insertBefore(drag.ph, ref || robot);
+    // Phase 9: a whole statement can leave the program - Trash deletes it, the
+    // spare tiles keep it for later
+    if (overZone(e, trashEl)) setZoneHover(trashEl);
+    else if (overZone(e, trayEl)) setZoneHover(trayEl);
+    else setZoneHover(null);
+    drawWires();
+    robotToBlock(lastRobotTarget);
+  }
+
+  function onPointerEnd(e){
+    if (!drag) return;
+    const d = drag; drag = null;
+    setZoneHover(null);
+    if (!d.active){
+      // just a press. A freshly materialized block goes home; a settled block's
+      // grip opens the statement menu (duplicate / stash / delete).
+      if (d.minted) unmaterialize(d);
+      else openStmtMenu(d.block);
+      return;
+    }
+    highlightRopes(d.block, false);
+    d.el.classList.remove('dragging');
+    d.el.style.position = ''; d.el.style.top = '';
+    d.el.style.left = ''; d.el.style.width = '';
+    blocksBox.insertBefore(d.el, d.ph);
+    d.ph.remove();
+    reorderProgramFromDom();
+    drawWires();
+    robotToBlock(lastRobotTarget);
+    if (focusedBlock) highlightRopes(focusedBlock, true);   // keep edit-highlight after a drag
+    if (e && overZone(e, trashEl)){ requestRemoveStmt(d.block, 'trash'); return; }
+    if (e && overZone(e, trayEl)){ requestRemoveStmt(d.block, 'stash'); return; }
+    if (d.minted) bindJumpTarget(d.block);    // a fresh jump binds to the nearest flag
+  }
+
+  // darken a block's connected ropes: its own outgoing rope (if it jumps) and
+  // every incoming rope (if it is a label being targeted)
+  function highlightRopes(b, on){
+    if (!b) return;
+    if (b.wireEl) b.wireEl.classList.toggle('rope-hi', on);
+    if (b.kind === 'label'){
+      program.forEach(function(o){
+        if (o.wireEl && o.jumpTo === b.name) o.wireEl.classList.toggle('rope-hi', on);
+      });
+    }
+  }
+
+  function reorderProgramFromDom(){
+    // remember what pc, the in-flight step, and Beep's anchor point at — by identity
+    const pcBlock    = program[pc] || null;
+    const stepBlock  = current ? program[current.i] : null;
+    const robotBlock = program[lastRobotTarget] || null;
+
+    const domOrder = Array.prototype.slice
+      .call(blocksBox.querySelectorAll(':scope > .block'))
+      .map(function(el){
+        return program.find(function(b){ return b.el === el; });
+      });
+    program.splice.apply(program, [0, program.length].concat(domOrder));
+
+    // remap indices to follow the same blocks in their new positions
+    if (pcBlock)    pc = Math.max(0, program.indexOf(pcBlock));
+    if (stepBlock && current) current.i = program.indexOf(stepBlock);
+    lastRobotTarget = robotBlock ? Math.max(0, program.indexOf(robotBlock)) : 0;
+  }
+
+  blocksBox.addEventListener('pointermove', onPointerMove);
+  blocksBox.addEventListener('pointerup', onPointerEnd);
+  blocksBox.addEventListener('pointercancel', onPointerEnd);
+
+  /* ---------- focus: tap a statement to open its expression ---------- */
+  // Only the focused statement shows its expression as draggable pieces; others
+  // stay compact. A "piece" is any operand node — a leaf (variable / number) or
+  // a whole nested subtree (a group). The root expression itself isn't movable.
+  let focusedBlock = null;
+  let suppressClick = false;
+
+  function isFocusable(b){ return b.type === 'assign' || b.type === 'ifjump'; }
+
+  // --- slot registry: rebuilt on every render of the focused stmt + tray ---
+  // A slot is a position {parent, field}; the node there is parent[field].
+  const slotReg = {};
+  let regSeq = 0;
+  function reg(parent, field){ const id = 'k' + (++regSeq); slotReg[id] = { parent:parent, field:field }; return id; }
+  function slotNode(id){ const s = slotReg[id]; return s.parent[s.field]; }
+  function setSlotNode(id, node){ const s = slotReg[id]; s.parent[s.field] = node; }
+
+  // what value type a position accepts. Tray cells follow their own content;
+  // everything else is fixed by the language (operands = number, condition = boolean).
+  function expectedType(id){
+    const s = slotReg[id];
+    if (Array.isArray(s.parent)) return typeOf(s.parent[s.field]);
+    if (s.parent.type === 'ifjump' && s.field === 'cond') return 'boolean';
+    return 'number';   // assign.expr and bin operands
+  }
+
+  function justCls(n){ if (n._justSet){ n._justSet = false; return ' just-set'; } return ''; }
+  // render a node as draggable HTML; isRoot suppresses the movable wrapper on the
+  // outermost expression (you move its parts, not the whole RHS).
+  function nodeHtml(node, parent, field, isRoot){
+    if (node.type === 'bin'){
+      // register this bin once; the id lets the operator glyph toggle THIS node,
+      // and (when nested) also serves as the draggable group's slot.
+      const selfId = reg(parent, field);
+      const inner = nodeHtml(node.left, node, 'left', false)
+                  + '<span class="op" data-op="'+selfId+'">' + opGlyph(node.op) + '</span>'
+                  + nodeHtml(node.right, node, 'right', false);
+      if (isRoot) return inner;                    // root RHS: parts move, whole doesn't
+      return '<span class="group'+justCls(node)+'" data-sl="'+selfId+'">'+inner+'</span>';
+    }
+    if (node.type === 'key' || node.type === 'touch'){
+      // a boolean predicate: hexagon piece (outer = border ring, inner = fill + text)
+      return '<span class="pred'+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'
+           +   '<span class="pred-in">'+condHtml(node)+'</span></span>';
+    }
+    const cls  = node.type === 'num' ? 'token num' : 'token var';
+    const text = node.type === 'num' ? node.value : node.name;
+    return '<span class="'+cls+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'+text+'</span>';
+  }
+  function focusedHtml(b){
+    if (b.type === 'ifjump')
+      return 'if ' + nodeHtml(b.cond, b, 'cond', false) + ' jump to ' + flagref(b.target);
+    return tgtChip(b.target) + ' = ' + nodeHtml(b.expr, b, 'expr', true);
+  }
+
+  // rebuild the draggable surfaces (focused statement + tray) from current trees
+  function renderSlots(){
+    for (const k in slotReg) delete slotReg[k];
+    regSeq = 0;
+    if (focusedBlock){
+      focusedBlock.contentEl.innerHTML = focusedHtml(focusedBlock);
+    }
+    trayEl.innerHTML = trayNodes.map(function(node, i){
+      // Phase 9: whole statements rest here too, as compact mini blocks. They
+      // are NOT slots (no data-sl), so the swap machinery never sees them.
+      if (KIND_FOR[node.type])
+        return '<span class="stmt-tile '+node.kind+'" data-st="'+i+'">'+renderStmt(node)+'</span>';
+      return nodeHtml(node, trayNodes, i, false);
+    }).join('');
+    document.querySelectorAll('[data-sl]').forEach(function(el){
+      el.addEventListener('pointerdown', onSlotDown);
+    });
+    trayEl.querySelectorAll('[data-st]').forEach(function(el){
+      el.addEventListener('pointerdown', onStmtTileDown);
+    });
+    document.querySelectorAll('.op[data-op]').forEach(function(el){
+      el.addEventListener('pointerdown', onOpDown);   // tap the sign to flip + / -
+    });
+    drawWires();   // heights can shift; keep jump wires attached
+  }
+
+  function setFocus(b){
+    if (b === focusedBlock) return;
+    if (focusedBlock){
+      focusedBlock.el.classList.remove('focused');
+      focusedBlock.contentEl.innerHTML = renderStmt(focusedBlock);  // live compact form
+      highlightRopes(focusedBlock, false);
+    }
+    focusedBlock = b;
+    if (b){ b.el.classList.add('focused'); highlightRopes(b, true); }   // darken its connections
+    renderSlots();
+  }
+
+  /* ---------- the spare-parts tray (a workbench of nodes) ---------- */
+  const traySeed = [
+    bin('+', v('ballVelocityX'), num(1)),   // number: a compound
+    v('brick1X'),                            // number: a variable
+    num(2),                                  // number: a literal
+    touchCond('brick2', 'brick2'),           // boolean: a predicate
+    keyCond('ArrowRight', '→')               // boolean: a predicate
+  ];
+  let trayNodes = traySeed.map(cloneNode);
+  const trayEl = document.getElementById('tray');
+  const trashEl = document.getElementById('trash');
+
+  /* ---------- piece drag: every valid drop SWAPS two subtrees ---------- */
+  let pieceDrag = null;
+
+  function compatible(aEl, bEl){
+    // a swap keeps both slots' types intact only if they expect the same type
+    return expectedType(aEl.dataset.sl) === expectedType(bEl.dataset.sl);
+  }
+  // clear the brief "just placed / just changed" highlight that a render injects
+  function clearJustSetSoon(){
+    const flashed = document.querySelectorAll('.just-set');
+    setTimeout(function(){ flashed.forEach(function(el){ el.classList.remove('just-set'); }); }, 450);
+  }
+  function swapSlots(idA, idB){
+    const nA = slotNode(idA), nB = slotNode(idB);
+    setSlotNode(idA, nB); setSlotNode(idB, nA);
+    nA._justSet = true; nB._justSet = true;
+    renderSlots();
+    clearJustSetSoon();
+  }
+  function markTargets(self, on){
+    document.querySelectorAll('[data-sl]').forEach(function(el){
+      // exclude self and anything nested with it (prevents building a cycle)
+      if (el === self || self.contains(el) || el.contains(self)){ el.classList.remove('drop-ok'); return; }
+      el.classList.toggle('drop-ok', on && dropAllowed(self, el));
+    });
+  }
+  let hovered = null;
+  function setHover(el){
+    if (hovered === el) return;
+    if (hovered) hovered.classList.remove('drop-hover');
+    hovered = el;
+    if (hovered) hovered.classList.add('drop-hover');
+  }
+  function pieceUnder(e, self){
+    const stack = document.elementsFromPoint(e.clientX, e.clientY);
+    for (let i = 0; i < stack.length; i++){
+      const el = stack[i].closest && stack[i].closest('[data-sl]');
+      // valid target: a slot that is neither self nor nested with self (no cycles)
+      if (el && el !== self && !self.contains(el) && !el.contains(self)) return el;
+    }
+    return null;
+  }
+  function onSlotDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();                 // not a statement drag, not a focus click
+    const el = e.currentTarget;
+    // capture the node + role BEFORE closeLeafPop: committing an open number chooser
+    // re-renders the slots and detaches this very element, which would leave a stale
+    // reference behind (a detached element reports a zero rect).
+    const node = slotNode(el.dataset.sl);
+    const role = dragRole(el);
+    closeLeafPop();                      // starting a drag dismisses any open chooser
+    // the piece's nearest stacking-context ancestor traps its z-index; we lift
+    // that whole container above the page during the drag so the piece can't
+    // hide behind sibling statement blocks.
+    pieceDrag = { el:el, node:node, x0:e.clientX, y0:e.clientY, moved:false,
+                  ctx: el.closest('.block, .side'), role: role };
+    el.setPointerCapture(e.pointerId);
+  }
+  // build an empty, same-shaped placeholder that shows a recessed socket
+  function makeSocket(el, rect){
+    const ph = document.createElement('span');
+    const shape = el.classList.contains('pred') ? 'pred'
+                : el.classList.contains('group') ? 'group' : 'token';
+    ph.className = 'socket ' + shape + (el.classList.contains('num') ? ' num' : '');
+    ph.style.width  = rect.width  + 'px';
+    ph.style.height = rect.height + 'px';
+    if (shape === 'pred'){ const inner = document.createElement('span'); inner.className = 'pred-in'; ph.appendChild(inner); }
+    return ph;
+  }
+  function onSlotMove(e){
+    if (!pieceDrag) return;
+    const dx = e.clientX - pieceDrag.x0, dy = e.clientY - pieceDrag.y0;
+    if (!pieceDrag.moved){
+      if (Math.abs(dx) + Math.abs(dy) < 5) return;
+      pieceDrag.moved = true;
+      const el = pieceDrag.el;
+      const rect = el.getBoundingClientRect();
+      pieceDrag.rect = rect;
+      // leave a shaped depression where the piece was, then lift the piece out of flow
+      const ph = makeSocket(el, rect);
+      el.parentNode.insertBefore(ph, el);
+      pieceDrag.ph = ph;
+      el.classList.add('lifting');
+      el.style.position = 'fixed';
+      el.style.margin = '0';
+      el.style.width = rect.width + 'px';
+      el.style.height = rect.height + 'px';
+      el.style.left = rect.left + 'px';
+      el.style.top  = rect.top + 'px';
+      if (pieceDrag.ctx) pieceDrag.ctx.style.zIndex = '1000';   // float container above siblings
+      markTargets(el, true);
+    }
+    pieceDrag.el.style.left = (pieceDrag.rect.left + dx) + 'px';
+    pieceDrag.el.style.top  = (pieceDrag.rect.top + dy) + 'px';
+    const t = pieceUnder(e, pieceDrag.el);
+    setHover(t && dropAllowed(pieceDrag.el, t) ? t : null);   // only valid targets light up
+    // a removable/collapsible piece can also drop on Trash (discard) or, for a bin
+    // operand, on the open tray area (keep as a tile). Light the zone it is over.
+    if (pieceDrag.role !== 'fixed' && overZone(e, trashEl)) setZoneHover(trashEl);
+    else if (canStash(pieceDrag) && !t && overZone(e, trayEl)) setZoneHover(trayEl);
+    else setZoneHover(null);
+  }
+  function onSlotUp(e){
+    if (!pieceDrag) return;
+    const el = pieceDrag.el, moved = pieceDrag.moved;
+    const target = moved ? pieceUnder(e, el) : null;
+    if (pieceDrag.ctx) pieceDrag.ctx.style.zIndex = '';         // restore normal stacking
+    markTargets(el, false);
+    setHover(null);
+    setZoneHover(null);
+    if (pieceDrag.role === 'proto'){ finishPaletteDrag(e, target); return; }
+    let handled = false;
+    if (moved){
+      if (target){
+        if (dropAllowed(el, target)){ swapSlots(el.dataset.sl, target.dataset.sl); handled = true; }
+      } else if (pieceDrag.role !== 'fixed' && overZone(e, trashEl)){
+        handled = dropOnZone(el, 'trash');
+      } else if (pieceDrag.role === 'operand' && overZone(e, trayEl)){
+        handled = dropOnZone(el, 'stash');
+      }
+    } else {
+      openLeafEditor(pieceDrag.node, el);   // a tap, not a drag -> edit this leaf in place
+      handled = true;
+    }
+    if (!handled){
+      // snap the piece home into its socket, then re-render to restore normal flow
+      el.style.transition = 'left .16s ease, top .16s ease';
+      el.style.left = pieceDrag.rect.left + 'px';
+      el.style.top  = pieceDrag.rect.top + 'px';
+      setTimeout(renderSlots, 160);
+    }
+    pieceDrag = null;
+    if (moved){ suppressClick = true; setTimeout(function(){ suppressClick = false; }, 0); }
+  }
+
+  /* ---------- Phase 7: collapse (prune) a bin via Trash / spare-tiles ----------
+     Dragging an operand out of a bin and dropping it on a zone offers to collapse
+     the bin to the operand you did NOT drag. Trash discards the dragged operand;
+     the spare-tiles area keeps it as a reusable tile. The replacement keeps the
+     slot full and the same value type, so the always-valid invariant holds. */
+
+  // what can happen to the dragged piece: an operand of a bin can collapse it; a
+  // spare tile can be trashed; anything whose removal would empty a required slot
+  // (a whole RHS or condition) is 'fixed' - the zones refuse it.
+  function dragRole(el){
+    const s = slotReg[el.dataset.sl];
+    if (!s) return 'fixed';
+    if (Array.isArray(s.parent)) return 'tile';
+    if (s.parent.type === 'bin') return 'operand';
+    return 'fixed';
+  }
+  function overZone(e, zoneEl){
+    if (!zoneEl) return false;
+    const r = zoneEl.getBoundingClientRect();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  }
+  let zoneHover = null;
+  function setZoneHover(z){
+    if (zoneHover === z) return;
+    if (zoneHover) zoneHover.classList.remove('zone-hot');
+    zoneHover = z;
+    if (zoneHover) zoneHover.classList.add('zone-hot');
+  }
+  // find the registry id whose slot currently holds this node (reverse of slotNode)
+  function slotIdOf(node){
+    for (const id in slotReg){ if (slotReg[id].parent[slotReg[id].field] === node) return id; }
+    return null;
+  }
+  // resolve a drop onto Trash / the tray. Returns true if it took an action.
+  function dropOnZone(el, kind){
+    const s = slotReg[el.dataset.sl];
+    if (!s) return false;
+    if (Array.isArray(s.parent)){                 // a spare tile
+      if (kind === 'trash'){ s.parent.splice(s.field, 1); renderSlots(); return true; }
+      return false;                               // dropping a tile back on the tray = no-op
+    }
+    if (s.parent.type === 'bin'){                 // an operand: offer to collapse the bin
+      const binNode  = s.parent;
+      const removed  = binNode[s.field];
+      const survivor = binNode[s.field === 'left' ? 'right' : 'left'];
+      renderSlots();                              // tidy the lifted piece away before the modal
+      openCollapseDialog(binNode, removed, survivor, kind === 'stash');
+      return true;
+    }
+    return false;                                 // required slot - refuse, snap home
+  }
+
+  // confirm dialog: shows the bin now and the operand left over, then rewrites the
+  // tree only if confirmed. binNode is still in the tree here, so slotIdOf finds it.
+  let collapseModal = null;
+  function openCollapseDialog(binNode, removed, survivor, keepTile){
+    closeLeafPop();
+    if (collapseModal) collapseModal.remove();
+    const veil = document.createElement('div');
+    veil.className = 'modal-veil';
+    veil.innerHTML =
+        '<div class="collapse-modal" role="dialog" aria-modal="true" aria-label="Collapse expression">'
+      +   '<div class="cm-title">Collapse this?</div>'
+      +   '<div class="cm-rows">'
+      +     '<span class="cm-lbl">Now</span><span class="expr-preview">'+htmlExpr(binNode)+'</span>'
+      +     '<span class="cm-lbl">After</span><span class="expr-preview keep">'+htmlExpr(survivor)+'</span>'
+      +   '</div>'
+      +   '<div class="cm-note">'+htmlExpr(removed)+(keepTile?' will move to your spare tiles.':' will be removed.')+'</div>'
+      +   '<div class="cm-btns">'
+      +     '<button class="btn cm-cancel" type="button">Keep as is</button>'
+      +     '<button class="btn danger cm-go" type="button">Collapse</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(veil);
+    collapseModal = veil;
+    function close(){
+      veil.remove(); if (collapseModal === veil) collapseModal = null;
+      document.removeEventListener('keydown', onKey, true);
+    }
+    function onKey(ev){
+      if (ev.key === 'Escape'){ ev.preventDefault(); close(); }
+      else if (ev.key === 'Enter'){ ev.preventDefault(); doCollapse(); }
+    }
+    function doCollapse(){
+      const id = slotIdOf(binNode);               // bin is still in place until now
+      if (id){ setSlotNode(id, survivor); survivor._justSet = true; }
+      if (keepTile) trayNodes.push(cloneNode(removed));
+      close(); renderSlots(); clearJustSetSoon();
+    }
+    veil.querySelector('.cm-cancel').addEventListener('click', close);
+    veil.querySelector('.cm-go').addEventListener('click', doCollapse);
+    veil.addEventListener('pointerdown', function(ev){ if (ev.target === veil) close(); });
+    document.addEventListener('keydown', onKey, true);
+    veil.querySelector('.cm-go').focus();
+  }
+  /* ---------- Phase 6: edit a leaf in place ----------
+     A tap (not a drag) on a leaf edits its CONTENT. This never adds, removes or
+     retypes a node, so the always-valid invariant holds by construction:
+       number    -> any number JS can hold, integer or decimal (value only)
+       variable  -> another backpack variable (still a number leaf)
+       operator  -> toggle + / - (still a bin over the same operands)
+       predicate -> another boolean sensor (still a boolean leaf)
+     Every edit is a field write / setSlotNode + renderSlots, exactly like a swap,
+     so display, values and behaviour all keep following from the one tree. */
+  const KEY_OPTS = [
+    { key:'ArrowLeft',  arrowLabel:'\u2190' },
+    { key:'ArrowRight', arrowLabel:'\u2192' }
+  ];
+  const TOUCH_OPTS = [
+    { target:'sideWall',   label:'side wall' },
+    { target:'topOrFloor', label:'top or floor' },
+    { target:'paddle',     label:'paddle' },
+    { target:'brick1',     label:'brick1' },
+    { target:'brick2',     label:'brick2' },
+    { target:'brick3',     label:'brick3' }
+  ];
+  // a literal can be any number JS can represent - integer or decimal (1.1). The
+  // only bound is the safe range (clampNum keeps values inside it so an edit never
+  // silently loses precision or becomes Infinity). step is the +/- nudge amount.
+  const NUM_EDIT = { min:-Number.MAX_SAFE_INTEGER, max:Number.MAX_SAFE_INTEGER, step:1 };
+
+  function markEdited(node){ node._justSet = true; renderSlots(); clearJustSetSoon(); }
+
+  // tap the operator glyph = open the bin's menu (the operator is the handle for
+  // the whole subtree): flip its sign, or wrap the whole bin in another operation.
+  function onOpDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();        // don't also start a group drag
+    const opEl = e.currentTarget;
+    const node = slotNode(opEl.dataset.op);         // capture before closeLeafPop can re-render
+    closeLeafPop();
+    if (node && node.type === 'bin') openBinPop(liveAnchor(node, opEl), node);
+  }
+
+  // dispatch a leaf tap to the right chooser (a bin group has no content of its
+  // own - its operator and operands are tapped directly, so it is ignored here)
+  // the current DOM element for a node, re-resolved from the live slot registry. A
+  // commit-triggered re-render can replace the element captured at pointerdown, so
+  // look the piece up again by node before positioning a chooser against it.
+  function liveAnchor(node, fallback){
+    const id = slotIdOf(node);
+    const el = id ? document.querySelector('[data-sl="'+id+'"], [data-op="'+id+'"]') : null;
+    return el || fallback;
+  }
+  function openLeafEditor(node, anchorEl){
+    if (!node) return;
+    const anchor = liveAnchor(node, anchorEl);
+    if (node.type === 'num') return openNumPop(anchor, node);
+    if (node.type === 'var') return openVarPop(anchor, node);
+    if (node.type === 'key' || node.type === 'touch') return openPredPop(anchor, node);
+  }
+
+  /* ---- the chooser popover (one at a time, floated over everything) ---- */
+  let leafPop = null, leafPopCommit = null;
+  function closeLeafPop(){
+    if (!leafPop) return;
+    const commit = leafPopCommit; leafPopCommit = null;   // run any pending commit first
+    if (commit) commit();
+    leafPop.remove(); leafPop = null;
+    document.removeEventListener('pointerdown', onPopOutside, true);
+    document.removeEventListener('keydown', onPopKey, true);
+    window.removeEventListener('resize', closeLeafPop);
+    blocksBox.removeEventListener('scroll', closeLeafPop);
+  }
+  function cancelLeafPop(){ leafPopCommit = null; closeLeafPop(); }   // discard, don't commit
+  function onPopOutside(e){ if (leafPop && !leafPop.contains(e.target)) closeLeafPop(); }
+  function onPopKey(e){ if (e.key === 'Escape'){ e.preventDefault(); cancelLeafPop(); } }
+  function openPop(anchorEl){
+    closeLeafPop();
+    const pop = document.createElement('div');
+    pop.className = 'leaf-pop';
+    pop.style.visibility = 'hidden';
+    document.body.appendChild(pop);
+    leafPop = pop;
+    // place under the anchor once measured, clamped to the viewport
+    requestAnimationFrame(function(){
+      if (leafPop !== pop) return;
+      const r = anchorEl.getBoundingClientRect();
+      const pw = pop.offsetWidth, ph = pop.offsetHeight;
+      let left = Math.max(8, Math.min(r.left, window.innerWidth - pw - 8));
+      let top  = r.bottom + 6;
+      if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
+      pop.style.left = left + 'px'; pop.style.top = top + 'px';
+      pop.style.visibility = 'visible';
+    });
+    // outside-tap / Esc / reflow all dismiss; capture phase so we see the tap first
+    setTimeout(function(){
+      document.addEventListener('pointerdown', onPopOutside, true);
+      document.addEventListener('keydown', onPopKey, true);
+      window.addEventListener('resize', closeLeafPop);
+      blocksBox.addEventListener('scroll', closeLeafPop);
+    }, 0);
+    return pop;
+  }
+  function popTitle(pop, text){
+    const t = document.createElement('div'); t.className = 'pop-title'; t.textContent = text; pop.appendChild(t);
+  }
+  function popGrid(pop){ const g = document.createElement('div'); g.className = 'pop-grid'; pop.appendChild(g); return g; }
+  function optButton(grid, label, isCur, onPick){
+    const b = document.createElement('button');
+    b.className = 'opt' + (isCur ? ' cur' : '');
+    b.innerHTML = label;
+    b.addEventListener('click', function(ev){ ev.preventDefault(); onPick(); });
+    grid.appendChild(b);
+  }
+
+  /* ---------- grow: wrap a piece in an operation (Phase 7) ----------
+     Operations are PULLED from the piece and filtered by type, so only valid ones
+     are ever offered (a boolean sensor sees no + or -). An op is offered iff its
+     input matches the piece AND its output still matches the slot the piece lives
+     in; for in-place wrapping that restricts to type-preserving ops, which keeps
+     the always-valid invariant. Each op seeds its identity (+/- -> 0, x/÷ -> 1) so
+     behaviour is unchanged until the new operand is tuned. Adding an op or a type
+     is a one-line registry entry. */
+  const OPS = [
+    { op:'+', identity:0, in:'number', out:'number' },
+    { op:'-', identity:0, in:'number', out:'number' }
+  ];
+  function opsFor(node){
+    const id = slotIdOf(node);
+    const inT = typeOf(node);
+    const outT = id ? expectedType(id) : inT;
+    return OPS.filter(function(o){ return o.in === inT && o.out === outT; });
+  }
+  // wrap `node` in `o`: node becomes the left operand, o.identity the fresh right one
+  function wrapNode(node, o){
+    const id = slotIdOf(node);
+    if (!id) return;
+    const fresh = num(o.identity);
+    setSlotNode(id, bin(o.op, node, fresh));
+    fresh._justSet = true;                 // flash the blank to fill in
+    renderSlots(); clearJustSetSoon();
+  }
+  // add a "wrap in ..." section to any chooser, when the piece can take operations
+  function appendWrapSection(pop, node){
+    const ops = opsFor(node);
+    if (!ops.length) return;
+    const sec = document.createElement('div'); sec.className = 'wrap-sec';
+    const t = document.createElement('div'); t.className = 'pop-title'; t.textContent = 'wrap in'; sec.appendChild(t);
+    const grid = document.createElement('div'); grid.className = 'pop-grid'; sec.appendChild(grid);
+    ops.forEach(function(o){
+      const b = document.createElement('button'); b.className = 'opt';
+      b.textContent = opGlyph(o.op) + ' ' + o.identity;    // e.g. "+ 0" - the identity you then fill in
+      b.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const pend = leafPopCommit; leafPopCommit = null;  // commit any typed value first
+        if (pend) pend();
+        wrapNode(node, o);
+        closeLeafPop();
+      });
+      grid.appendChild(b);
+    });
+    pop.appendChild(sec);
+  }
+
+  // menu parity with the drop zones (which can be off-screen): a removable
+  // piece can be sent to the spare tiles or the Trash straight from its
+  // chooser. Same rules as dropping - bin operands go through the collapse
+  // dialog, tray tiles just leave, required slots offer nothing.
+  function appendZoneSection(pop, node){
+    const id = slotIdOf(node);
+    if (!id) return;
+    const s = slotReg[id];
+    const sec = document.createElement('div'); sec.className = 'wrap-sec';
+    const t = document.createElement('div'); t.className = 'pop-title'; t.textContent = 'take out'; sec.appendChild(t);
+    const grid = document.createElement('div'); grid.className = 'pop-grid'; sec.appendChild(grid);
+    function opt(label, fn){
+      const b = document.createElement('button'); b.className = 'opt'; b.textContent = label;
+      b.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const pend = leafPopCommit; leafPopCommit = null;   // commit any typed value first
+        if (pend) pend();
+        fn();
+      });
+      grid.appendChild(b);
+    }
+    if (Array.isArray(s.parent)){                 // a spare tile: it just leaves
+      opt('trash this tile', function(){
+        s.parent.splice(s.field, 1);
+        cancelLeafPop(); renderSlots();
+      });
+      pop.appendChild(sec);
+      return;
+    }
+    if (s.parent.type !== 'bin') return;          // required slot: removal would empty it
+    const binNode  = s.parent;
+    const removed  = binNode[s.field];
+    const survivor = binNode[s.field === 'left' ? 'right' : 'left'];
+    opt('to spare tiles', function(){ cancelLeafPop(); openCollapseDialog(binNode, removed, survivor, true); });
+    opt('trash', function(){ cancelLeafPop(); openCollapseDialog(binNode, removed, survivor, false); });
+    pop.appendChild(sec);
+  }
+
+  // number: a clamped integer, typed or nudged. Commits on Enter / outside-tap.
+  function openNumPop(anchorEl, node){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'number');
+    const row = document.createElement('div'); row.className = 'pop-row';
+    const minus = document.createElement('button'); minus.className = 'stepper'; minus.textContent = '\u2212';
+    const inp = document.createElement('input');
+    inp.className = 'numedit'; inp.type = 'number'; inp.inputMode = 'decimal';
+    // step="any" lets the field accept decimals (1.1); min/max hold the safe range
+    inp.min = NUM_EDIT.min; inp.max = NUM_EDIT.max; inp.step = 'any'; inp.value = node.value;
+    const plus = document.createElement('button'); plus.className = 'stepper'; plus.textContent = '+';
+    row.appendChild(minus); row.appendChild(inp); row.appendChild(plus); pop.appendChild(row);
+    // clamp to the safe range WITHOUT rounding, so decimals survive; Infinity from
+    // an over-huge entry still lands on MAX_SAFE. tidy() trims the float noise the
+    // steppers can introduce (e.g. 1.1 - 1), while preserving whole numbers exactly.
+    function clampNum(x){ return Math.min(NUM_EDIT.max, Math.max(NUM_EDIT.min, x)); }
+    function tidy(x){ return parseFloat(x.toFixed(9)); }
+    leafPopCommit = function(){
+      if (inp.value === '' || inp.value === '-' || inp.value === '.') return;
+      const val = Number(inp.value); if (Number.isNaN(val)) return;
+      const v = clampNum(val);
+      if (v === node.value) return;      // unchanged -> don't re-render (avoids churn)
+      node.value = v; markEdited(node);
+    };
+    minus.addEventListener('click', function(ev){ ev.preventDefault(); inp.value = tidy(clampNum(Number(inp.value||0) - NUM_EDIT.step)); inp.focus(); });
+    plus .addEventListener('click', function(ev){ ev.preventDefault(); inp.value = tidy(clampNum(Number(inp.value||0) + NUM_EDIT.step)); inp.focus(); });
+    inp.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); closeLeafPop(); } });
+    appendWrapSection(pop, node);
+    appendZoneSection(pop, node);
+    requestAnimationFrame(function(){ inp.focus(); inp.select(); });
+  }
+
+  // variable: pick another backpack variable (all are numbers, so type is safe)
+  function openVarPop(anchorEl, node){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'variable');
+    const grid = popGrid(pop);
+    VARS.forEach(function(name){
+      optButton(grid, name, name === node.name, function(){
+        node.name = name; markEdited(node); cancelLeafPop();
+      });
+    });
+    appendWrapSection(pop, node);
+    appendZoneSection(pop, node);
+  }
+
+  // predicate: pick another boolean sensor. Replaces the node with a fresh key /
+  // touch condition of the SAME value type (boolean), through the captured slot.
+  function openPredPop(anchorEl, node){
+    const s = slotReg[anchorEl.dataset.sl];          // {parent, field} - captured before any re-render
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'sensor . yes or no?');
+    const grid = popGrid(pop);
+    KEY_OPTS.forEach(function(o){
+      const cur = node.type === 'key' && node.key === o.key;
+      optButton(grid, o.arrowLabel + ' pressed', cur, function(){
+        const nn = keyCond(o.key, o.arrowLabel); s.parent[s.field] = nn; markEdited(nn); cancelLeafPop();
+      });
+    });
+    TOUCH_OPTS.forEach(function(o){
+      const cur = node.type === 'touch' && node.target === o.target;
+      optButton(grid, 'touch ' + o.label, cur, function(){
+        const nn = touchCond(o.target, o.label); s.parent[s.field] = nn; markEdited(nn); cancelLeafPop();
+      });
+    });
+    appendWrapSection(pop, node);
+    appendZoneSection(pop, node);
+  }
+
+  // the operator glyph is the handle for its whole bin: flip the sign, or wrap the
+  // entire subtree in another operation.
+  function openBinPop(anchorEl, node){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'operation');
+    const grid = popGrid(pop);
+    optButton(grid, 'make it ' + (node.op === '+' ? '\u2212' : '+'), false, function(){
+      node.op = (node.op === '+' ? '-' : '+'); markEdited(node); cancelLeafPop();
+    });
+    appendWrapSection(pop, node);
+    appendZoneSection(pop, node);
+  }
+
+  /* ---------- Phase 8: the palette - an infinite typed source ----------
+     The spare tiles are a finite workbench; the palette is a shelf of PROTOTYPES.
+     A drag never takes the prototype - a ghost lifts off and a FRESH node is
+     minted for it, so the shelf cannot run out and Reset need not touch it.
+     Every outcome keeps the always-valid invariant by construction:
+       value tile -> compatible slot: REPLACES the occupant, and the occupant
+                     retreats to the spare tiles (material is never lost);
+                  -> spare-tiles open area: mints a new tile.
+       op tile    -> a piece whose type the op preserves: WRAPS it, seeding the
+                     identity (the "wrap in" menu, in drag form). Works on spare
+                     tiles too, so expressions can be grown on the workbench.
+       Trash      -> the fresh piece evaporates (it was never in the tree), so
+                     Trash doubles as "cancel this drag".
+     A new op in OPS or variable in VARS gets a palette tile automatically. */
+  const paletteEl = document.getElementById('palette');
+  const PALETTE = [];
+
+  // during a palette drag "can drop here" is not the swap test: a value prototype
+  // needs only the TARGET slot's type (it replaces, it does not trade), and an
+  // operation prototype uses the wrap filter (in matches the occupant, out matches
+  // the slot). Everything else falls through to the swap rule.
+  function dropAllowed(dragEl, targetEl){
+    if (pieceDrag && pieceDrag.proto){
+      const item = pieceDrag.proto;
+      const s = slotReg[targetEl.dataset.sl];
+      if (!s) return false;
+      if (item.kind === 'value'){
+        if (Array.isArray(s.parent)) return false;   // tray cells: use the open-area drop
+        return typeOf(pieceDrag.node) === expectedType(targetEl.dataset.sl);
+      }
+      const occ = slotNode(targetEl.dataset.sl);
+      return item.op.in === typeOf(occ) && item.op.out === expectedType(targetEl.dataset.sl);
+    }
+    return compatible(dragEl, targetEl);
+  }
+  // who may drop on the tray's open area: a bin operand (collapse-and-keep) or a
+  // fresh value from the palette (mint a tile)
+  function canStash(d){
+    return d.role === 'operand' || (d.role === 'proto' && d.proto.kind === 'value');
+  }
+
+  function onPaletteDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    if (pieceDrag) return;
+    e.preventDefault(); e.stopPropagation();
+    closeLeafPop();
+    const src  = e.currentTarget;
+    const item = PALETTE[Number(src.dataset.pi)];
+    const rect = src.getBoundingClientRect();
+    // the ghost is a visual copy; the prototype stays on the shelf
+    const ghost = src.cloneNode(true);
+    ghost.classList.add('lifting');
+    ghost.removeAttribute('data-pi');
+    ghost.style.position = 'fixed'; ghost.style.margin = '0';
+    ghost.style.width  = rect.width  + 'px'; ghost.style.height = rect.height + 'px';
+    ghost.style.left   = rect.left   + 'px'; ghost.style.top    = rect.top    + 'px';
+    document.body.appendChild(ghost);
+    // moved:true from the start - the ghost IS already lifted, so onSlotMove
+    // skips its lift branch and just tracks the pointer + targets
+    pieceDrag = { el:ghost, node:(item.kind === 'value' ? item.make() : null),
+                  x0:e.clientX, y0:e.clientY, moved:true, rect:rect, ph:null,
+                  ctx:null, role:'proto', proto:item };
+    src.setPointerCapture(e.pointerId);
+    markTargets(ghost, true);
+  }
+
+  // resolve the end of a palette drag: place / wrap / stash / evaporate the ghost
+  function finishPaletteDrag(e, target){
+    const ghost = pieceDrag.el, home = pieceDrag.rect, item = pieceDrag.proto;
+    let handled = false;
+    if (target && dropAllowed(ghost, target)){
+      const id = target.dataset.sl;
+      if (item.kind === 'op'){
+        wrapNode(slotNode(id), item.op);          // same move as the "wrap in" menu
+      } else {
+        const displaced = slotNode(id);
+        setSlotNode(id, pieceDrag.node);
+        pieceDrag.node._justSet = true;
+        displaced._justSet = true;
+        trayNodes.push(displaced);                // never lost: it retreats to the spares
+        renderSlots(); clearJustSetSoon();
+      }
+      handled = true;
+    } else if (overZone(e, trashEl)){
+      handled = true;                             // fresh piece, never in the tree: let it go
+    } else if (item.kind === 'value' && overZone(e, trayEl)){
+      pieceDrag.node._justSet = true;
+      trayNodes.push(pieceDrag.node);             // mint a spare tile
+      renderSlots(); clearJustSetSoon();
+      handled = true;
+    }
+    if (handled){
+      ghost.remove();
+    } else {
+      // drift home to the shelf and fade - nothing was created
+      ghost.style.transition = 'left .16s ease, top .16s ease, opacity .16s ease';
+      ghost.style.left = home.left + 'px';
+      ghost.style.top  = home.top  + 'px';
+      ghost.style.opacity = '0';
+      setTimeout(function(){ ghost.remove(); }, 180);
+    }
+    pieceDrag = null;
+    suppressClick = true; setTimeout(function(){ suppressClick = false; }, 0);
+  }
+
+  // build the shelf once: prototypes are static, so Reset never touches them
+  (function buildPalette(){
+    function group(label){
+      const g = document.createElement('div'); g.className = 'pal-group';
+      const l = document.createElement('div'); l.className = 'pal-lbl'; l.textContent = label;
+      g.appendChild(l); paletteEl.appendChild(g); return g;
+    }
+    function add(g, item, el){
+      item.pi = PALETTE.length; PALETTE.push(item);
+      el.classList.add('proto');
+      el.dataset.pi = item.pi;
+      el.addEventListener('pointerdown', onPaletteDown);
+      g.appendChild(el);
+    }
+    function tokenEl(cls, text){
+      const t = document.createElement('span');
+      t.className = 'token ' + cls; t.textContent = text; return t;
+    }
+    function predEl(node){
+      const pr = document.createElement('span'); pr.className = 'pred';
+      pr.innerHTML = '<span class="pred-in">' + condHtml(node) + '</span>';
+      return pr;
+    }
+    let g = group('numbers & variables');
+    add(g, { kind:'value', make:function(){ return num(0); } }, tokenEl('num', '0'));
+    VARS.forEach(function(name){
+      add(g, { kind:'value', make:function(){ return v(name); } }, tokenEl('var', name));
+    });
+    g = group('sensors');
+    KEY_OPTS.forEach(function(o){
+      add(g, { kind:'value', make:function(){ return keyCond(o.key, o.arrowLabel); } },
+          predEl(keyCond(o.key, o.arrowLabel)));
+    });
+    TOUCH_OPTS.forEach(function(o){
+      add(g, { kind:'value', make:function(){ return touchCond(o.target, o.label); } },
+          predEl(touchCond(o.target, o.label)));
+    });
+    g = group('operations');
+    OPS.forEach(function(o){
+      const el = tokenEl('optile', opGlyph(o.op));
+      el.title = 'drop on a piece to wrap it in ' + opGlyph(o.op);
+      add(g, { kind:'op', op:o }, el);
+    });
+    // Phase 9: whole statements. Every prototype arrives as a no-op: an
+    // identity assign, jumps that bind to the nearest flag on landing, a fresh
+    // flag, and the two atomic commands (visibly named, so opt-in behaviour).
+    g = group('statements');
+    function stmtProto(make){
+      const sample = make();
+      const el = document.createElement('span');
+      el.className = 'stmt-tile ' + sample.kind;
+      el.innerHTML = renderStmt(sample);
+      const item = { kind:'stmt', make:make };
+      item.pi = PALETTE.length; PALETTE.push(item);
+      el.classList.add('proto');
+      el.dataset.pi = item.pi;
+      el.addEventListener('pointerdown', onStmtProtoDown);
+      g.appendChild(el);
+    }
+    stmtProto(function(){ return mk({ type:'assign', target:'paddleX', expr: v('paddleX') }); });
+    stmtProto(function(){ return mk({ type:'ifjump', cond: keyCond('ArrowLeft','←'), target:'?' }); });
+    stmtProto(function(){ return mk({ type:'goto', target:'?' }); });
+    stmtProto(function(){ return label(uniqueLabelName('flag')); });
+    stmtProto(function(){ return movePaddle(); });
+    stmtProto(function(){ return moveBall(); });
+    stmtProto(function(){ return despawn_('brick1'); });
+  })();
+
+  /* ---------- Phase 9: statements are material too ----------
+     Add (palette group), delete (drag to Trash), stash (drag to the spare
+     tiles; the ONE tray holds statements and expression tiles side by side),
+     duplicate (tap the grip for the statement menu), and Reset restores the
+     whole seed list.
+     THE INVARIANT, AMENDED: structure stays always-valid (no empty slots, no
+     half statements), but REFERENCES may now dangle - deleting a flag that
+     jumps point at is allowed after a confirm dialog. A dangling jump renders
+     frayed, its rope disappears, and when Beep tries to take it he stops and
+     acts confused (beepConfused). The broken program still RUNS - the bug is
+     visible, steppable, and fixable, which is the pedagogical point. */
+
+  // a statement leaves the program. Trash discards, 'stash' sends it to the
+  // spare tiles. A referenced label warns first; everything else just goes.
+  function requestRemoveStmt(b, kind){
+    const holders = program.filter(function(o){
+      return o.jumpTo !== undefined && o.jumpTo === b.name && o !== b;
+    });
+    if (b.type === 'label' && holders.length){ openLabelDialog(b, holders, kind); return; }
+    removeStmt(b, kind);
+  }
+
+  function removeStmt(b, kind){
+    if (focusedBlock === b) setFocus(null);
+    const pcBlock    = program[pc] || null;
+    const stepBlock  = current ? program[current.i] : null;
+    const robotBlock = program[lastRobotTarget] || null;
+    const i = program.indexOf(b);
+    if (i !== -1) program.splice(i, 1);
+    b.el.remove();
+    if (b.wireEl){ b.wireEl.remove(); b.wireEl = null; }
+    if (kind === 'stash') trayNodes.push(b);
+    // follow the surviving blocks by identity; if a tracked block was the one
+    // removed, stay on the same row (whatever slid up into its place)
+    pc = (pcBlock && pcBlock !== b) ? Math.max(0, program.indexOf(pcBlock))
+                                    : Math.min(pc, Math.max(0, program.length - 1));
+    if (current && stepBlock && stepBlock !== b) current.i = Math.max(0, program.indexOf(stepBlock));
+    lastRobotTarget = (robotBlock && robotBlock !== b) ? Math.max(0, program.indexOf(robotBlock))
+                                                       : Math.min(lastRobotTarget, Math.max(0, program.length - 1));
+    refreshAllStmts();          // any jump that pointed here now renders frayed
+    renderSlots();
+    drawWires();
+    robotToBlock(lastRobotTarget);
+  }
+
+  function refreshAllStmts(){
+    program.forEach(function(o){
+      if (o !== focusedBlock) o.contentEl.innerHTML = renderStmt(o);
+    });
+  }
+
+  // the label-deletion dialog: the one sanctioned crack in always-valid.
+  // While it is open, the ropes that would dangle are highlighted.
+  let labelModal = null;
+  function openLabelDialog(b, holders, kind){
+    closeLeafPop();
+    if (labelModal) labelModal.remove();
+    holders.forEach(function(o){ if (o.wireEl) o.wireEl.classList.add('rope-hi'); });
+    const n = holders.length;
+    const veil = document.createElement('div');
+    veil.className = 'modal-veil';
+    veil.innerHTML =
+        '<div class="collapse-modal" role="dialog" aria-modal="true" aria-label="Remove flag">'
+      +   '<div class="cm-title">Remove this flag?</div>'
+      +   '<div class="cm-rows">'
+      +     '<span class="cm-lbl">Flag</span><span class="expr-preview">⚑ '+b.name+'</span>'
+      +   '</div>'
+      +   '<div class="cm-note">'+n+(n===1?' jump points':' jumps point')+' to this flag. '
+      +     (kind==='stash' ? 'The flag will move to your spare tiles' : 'The flag will be removed')
+      +     ', and those jumps will point at <b>nothing</b>. If Beep tries one, he will stop, confused.</div>'
+      +   '<div class="cm-btns">'
+      +     '<button class="btn cm-cancel" type="button">Keep it</button>'
+      +     '<button class="btn danger cm-go" type="button">'+(kind==='stash'?'Move it':'Remove it')+'</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(veil);
+    labelModal = veil;
+    function close(){
+      holders.forEach(function(o){ if (o.wireEl) o.wireEl.classList.remove('rope-hi'); });
+      veil.remove(); if (labelModal === veil) labelModal = null;
+      document.removeEventListener('keydown', onKey, true);
+    }
+    function onKey(ev){
+      if (ev.key === 'Escape'){ ev.preventDefault(); close(); }
+      else if (ev.key === 'Enter'){ ev.preventDefault(); go(); }
+    }
+    function go(){ close(); nemesisZap(b, holders, kind); }
+    veil.querySelector('.cm-cancel').addEventListener('click', close);
+    veil.querySelector('.cm-go').addEventListener('click', go);
+    veil.addEventListener('pointerdown', function(ev){ if (ev.target === veil) close(); });
+    document.addEventListener('keydown', onKey, true);
+    veil.querySelector('.cm-go').focus();
+  }
+
+  /* the nemesis: confirming deletion of a WIRED flag summons Beep's rival.
+     He drops in beside the doomed flag, glides to each jump that holds a rope
+     to it, and zaps them one at a time; only when the last rope is dead does
+     the flag actually leave. Purely theatrical - the data change is identical
+     to removeStmt, just postponed to the end of the show. */
+  const nemesis = document.getElementById('nemesis');
+  let nemesisBusy = false;
+  function nemesisTo(el){
+    nemesis.style.left = (blocksBox.clientWidth + 4) + 'px';   // just off the right edge
+    nemesis.style.top  = (el.offsetTop + el.offsetHeight/2 - 23) + 'px';
+  }
+  // perch at the MIDDLE of a rope: the wires SVG shares blocksBox's origin, so
+  // a point along the path maps straight to nemesis coordinates. Falls back to
+  // the rope's owner row where path geometry is unavailable (test harness).
+  function nemesisToWire(o){
+    try {
+      const len = o.wireEl.getTotalLength();
+      if (len > 0){
+        const pt = o.wireEl.getPointAtLength(len / 2);
+        nemesis.style.left = (pt.x - 21) + 'px';
+        nemesis.style.top  = (pt.y - 23) + 'px';
+        return;
+      }
+    } catch(err){}
+    nemesisTo(o.el);
+  }
+  function nemesisZap(b, holders, kind){
+    if (nemesisBusy){ removeStmt(b, kind); return; }   // no double features
+    nemesisBusy = true;
+    nemesisTo(b.el);
+    nemesis.classList.add('here');
+    let i = 0;
+    function zapNext(){
+      if (i >= holders.length){
+        setTimeout(function(){
+          nemesis.classList.remove('here');
+          holders.forEach(function(o){
+            if (o.wireEl){ o.wireEl.classList.remove('rope-zap'); o.wireEl.classList.remove('rope-dead'); }
+          });
+          nemesisBusy = false;
+          removeStmt(b, kind);                          // now the flag really goes
+        }, 300);
+        return;
+      }
+      const o = holders[i++];
+      nemesisToWire(o);                                 // glide to the rope's midpoint
+      setTimeout(function(){
+        nemesis.classList.add('zapping');
+        if (o.wireEl) o.wireEl.classList.add('rope-zap');
+        o.el.classList.add('zap');                      // the rope's owner takes the jolt
+        setTimeout(function(){
+          if (o.wireEl) o.wireEl.classList.add('rope-dead');
+          nemesis.classList.remove('zapping');
+          o.el.classList.remove('zap');
+          setTimeout(zapNext, 120);
+        }, 400);
+      }, 320);
+    }
+    setTimeout(zapNext, 450);                           // entrance beat
+  }
+
+  // tap the grip (no drag) -> the statement's own menu
+  function openStmtMenu(b){
+    const pop = openPop(b.gripEl);
+    popTitle(pop, b.kind === 'label' ? 'flag' : b.kind + ' statement');
+    const grid = popGrid(pop);
+    optButton(grid, 'duplicate', false, function(){ cancelLeafPop(); duplicateStmt(b); });
+    optButton(grid, 'to spare tiles', false, function(){ cancelLeafPop(); requestRemoveStmt(b, 'stash'); });
+    optButton(grid, 'delete', false, function(){ cancelLeafPop(); requestRemoveStmt(b, 'trash'); });
+  }
+
+  function duplicateStmt(b){
+    const nb = cloneStmt(b);
+    if (nb.type === 'label') nb.name = uniqueLabelName(b.name);   // names stay unique
+    const i = program.indexOf(b);
+    program.splice(i + 1, 0, nb);
+    buildBlock(nb, b.el.nextSibling);
+    nb.el.classList.add('zap');
+    setTimeout(function(){ nb.el.classList.remove('zap'); }, 600);
+    refreshAllStmts();
+    renderSlots();
+    drawWires();
+    robotToBlock(lastRobotTarget);
+  }
+
+  // a fresh jump binds to the nearest flag below its landing spot (else above);
+  // if no flag exists it stays dangling - visibly frayed, honestly broken
+  function bindJumpTarget(b){
+    if (b.jumpTo === undefined) return;
+    if (labelIndex(b.target) !== -1) return;          // already points at a real flag
+    const i = program.indexOf(b);
+    let name = null;
+    for (let k = i + 1; k < program.length && !name; k++) if (program[k].type === 'label') name = program[k].name;
+    for (let k = i - 1; k >= 0 && !name; k--)            if (program[k].type === 'label') name = program[k].name;
+    if (name){ b.target = name; b.jumpTo = name; }
+    if (b === focusedBlock) renderSlots();
+    else b.contentEl.innerHTML = renderStmt(b);
+    drawWires();
+    wireZing(b);
+    const fr = b.contentEl.querySelector('.flagref');   // "tap me" hint
+    if (fr){ fr.classList.add('hint'); setTimeout(function(){ fr.classList.remove('hint'); }, 1300); }
+  }
+
+  /* ---------- Phase 10: chips are references; tapping one repoints it ----
+     One rule finishes four features: tap a jump's flagref -> retarget chooser
+     (also the repair tool for dangling jumps, with a "+ new flag below"
+     escape hatch); tap a label's flag -> rename-as-refactor (every jump and
+     stashed statement follows, so references never break); tap an assign's
+     LHS chip -> variable chooser; tap despawn's sprite chip -> sprite
+     chooser. Delegated in CAPTURE phase so a chip tap never doubles as a
+     focus toggle. Names stay the identity: uniqueness is enforced on rename,
+     so no id migration is needed. */
+  function refreshRow(b){
+    if (b === focusedBlock) renderSlots();
+    else b.contentEl.innerHTML = renderStmt(b);
+  }
+  function retargetJump(b, name){
+    b.target = name; b.jumpTo = name;
+    refreshRow(b);
+    drawWires();
+    wireZing(b);
+    const t = labelIndex(name);
+    if (t !== -1) flagPulse(t);
+  }
+  function openFlagrefPop(b, anchorEl){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'jump to which flag?');
+    const grid = popGrid(pop);
+    program.forEach(function(o){
+      if (o.type !== 'label') return;
+      optButton(grid, '⚑ ' + o.name, o.name === b.target, function(){
+        cancelLeafPop(); retargetJump(b, o.name);
+      });
+    });
+    const sec = document.createElement('div'); sec.className = 'wrap-sec';
+    const g2 = document.createElement('div'); g2.className = 'pop-grid'; sec.appendChild(g2);
+    const nf = document.createElement('button'); nf.className = 'opt';
+    nf.textContent = '+ new flag below';
+    nf.addEventListener('click', function(ev){
+      ev.preventDefault();
+      cancelLeafPop();
+      const nb = label(uniqueLabelName('flag'));
+      program.splice(program.indexOf(b) + 1, 0, nb);
+      buildBlock(nb, b.el.nextSibling);
+      retargetJump(b, nb.name);
+      nb.el.classList.add('zap');
+      setTimeout(function(){ nb.el.classList.remove('zap'); }, 600);
+      robotToBlock(lastRobotTarget);
+    });
+    g2.appendChild(nf);
+    pop.appendChild(sec);
+  }
+  function renameLabel(b, name){
+    const old = b.name;
+    if (name === old) return;
+    program.forEach(function(o){
+      if (o.jumpTo !== undefined && o.jumpTo === old){ o.target = name; o.jumpTo = name; }
+    });
+    trayNodes.forEach(function(o){       // stashed jumps follow the rename too
+      if (o.jumpTo !== undefined && o.jumpTo === old){ o.target = name; o.jumpTo = name; }
+    });
+    b.name = name;
+    refreshAllStmts();
+    renderSlots();
+    drawWires();
+    flagPulse(labelIndex(name));
+  }
+  function validFlagName(name, self){
+    if (!/^[A-Za-z][A-Za-z0-9]{0,11}$/.test(name)) return false;
+    const i = labelIndex(name);
+    return i === -1 || program[i] === self;
+  }
+  function openFlagPop(b, anchorEl){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'rename this flag');
+    const row = document.createElement('div'); row.className = 'pop-row';
+    const inp = document.createElement('input');
+    inp.className = 'numedit flagedit';
+    inp.type = 'text'; inp.maxLength = 12; inp.value = b.name;
+    inp.setAttribute('spellcheck', 'false');
+    row.appendChild(inp); pop.appendChild(row);
+    const note = document.createElement('div'); note.className = 'pop-note';
+    note.textContent = 'every jump to it follows along';
+    pop.appendChild(note);
+    inp.addEventListener('input', function(){
+      inp.classList.toggle('bad', !validFlagName(inp.value.trim(), b));
+    });
+    leafPopCommit = function(){
+      const v = inp.value.trim();
+      if (!validFlagName(v, b)) return;    // invalid: quietly keep the old name
+      renameLabel(b, v);
+    };
+    inp.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter'){ ev.preventDefault(); closeLeafPop(); }
+    });
+    requestAnimationFrame(function(){ inp.focus(); inp.select(); });
+  }
+  function openLhsPop(b, anchorEl){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'put the result into');
+    const grid = popGrid(pop);
+    VARS.forEach(function(name){
+      optButton(grid, name, name === b.target, function(){
+        b.target = name;
+        cancelLeafPop();
+        refreshRow(b);
+        flashTile(name);
+      });
+    });
+  }
+  function openSpritePop(b, anchorEl){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'despawn which sprite?');
+    const grid = popGrid(pop);
+    SPRITES.forEach(function(k){
+      optButton(grid, k, k === b.sprite, function(){
+        b.sprite = k;
+        cancelLeafPop();
+        refreshRow(b);
+      });
+    });
+  }
+  // capture phase: a chip tap must never double as a focus toggle
+  blocksBox.addEventListener('click', function(e){
+    if (suppressClick) return;
+    const chipEl = e.target.closest ? e.target.closest('.flagref, .flag, .tgt-chip, .sprite-chip') : null;
+    if (!chipEl) return;
+    const rowEl = chipEl.closest('.block');
+    if (!rowEl) return;
+    const b = program.find(function(x){ return x.el === rowEl; });
+    if (!b) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if (chipEl.classList.contains('flagref')) return openFlagrefPop(b, chipEl);
+    if (chipEl.classList.contains('flag'))    return openFlagPop(b, chipEl);
+    if (chipEl.classList.contains('tgt-chip')) return openLhsPop(b, chipEl);
+    if (chipEl.classList.contains('sprite-chip')) return openSpritePop(b, chipEl);
+  }, true);
+
+  /* -- materialized drags: a statement arrives as a REAL block under the
+        pointer and rides the ordinary reorder machinery (same gap, same
+        commit). Sources: the palette (mints) and the spare tiles (returns). -- */
+  function startMaterializedDrag(e, b, fromTray){
+    b.el = null; b.wireEl = null;            // stale refs from a previous life
+    buildBlock(b);                            // lands at the end; the gap tracks the pointer
+    if (program.indexOf(b) === -1) program.push(b);
+    const el = b.el, grip = b.gripEl;
+    const h = el.offsetHeight || 34;
+    drag = {
+      el: el, block: b, grip: grip,
+      startX: e.clientX, startY: e.clientY,
+      grabDX: Math.min(60, (el.offsetWidth || 200) / 2), grabDY: h / 2,
+      w: el.offsetWidth || (blocksBox.clientWidth - 8),
+      active: true, ph: null, minted: true, fromTray: !!fromTray
+    };
+    const ph = document.createElement('div');
+    ph.className = 'block placeholder';
+    ph.style.height = h + 'px';
+    blocksBox.insertBefore(ph, el);
+    drag.ph = ph;
+    el.classList.add('dragging');
+    el.style.width = drag.w + 'px';
+    el.style.left = '0';
+    el.style.position = 'absolute';
+    const boxR2 = blocksBox.getBoundingClientRect();
+    el.style.top  = (e.clientY - boxR2.top - drag.grabDY) + 'px';
+    el.style.left = (e.clientX - boxR2.left - drag.grabDX) + 'px';
+    highlightRopes(b, true);
+    grip.setPointerCapture(e.pointerId);
+    drawWires();
+  }
+  // a mere tap: put the materialized block back where it came from
+  function unmaterialize(d){
+    const i = program.indexOf(d.block);
+    if (i !== -1) program.splice(i, 1);
+    d.block.el.remove();
+    if (d.block.wireEl){ d.block.wireEl.remove(); d.block.wireEl = null; }
+    if (d.fromTray) trayNodes.push(d.block);
+    renderSlots();
+    drawWires();
+    robotToBlock(lastRobotTarget);
+  }
+  function onStmtProtoDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    if (drag || pieceDrag) return;
+    e.preventDefault(); e.stopPropagation();
+    closeLeafPop();
+    const item = PALETTE[Number(e.currentTarget.dataset.pi)];
+    startMaterializedDrag(e, item.make(), false);
+  }
+  function onStmtTileDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    if (drag || pieceDrag) return;
+    e.preventDefault(); e.stopPropagation();
+    closeLeafPop();
+    const b = trayNodes[Number(e.currentTarget.dataset.st)];
+    trayNodes.splice(trayNodes.indexOf(b), 1);
+    renderSlots();
+    startMaterializedDrag(e, b, true);
+  }
+
+  document.addEventListener('pointermove', onSlotMove);
+  document.addEventListener('pointerup', onSlotUp);
+  document.addEventListener('pointercancel', onSlotUp);
+
+  // restore every assignment tree + every condition + the tray on Reset
+  function resetExpr(){
+    // Phase 9: restore the whole LIST - added statements vanish, deleted ones
+    // return - exactly like the tray going back to its seed
+    setFocus(null);
+    program.forEach(function(b){ b.el.remove(); if (b.wireEl){ b.wireEl.remove(); b.wireEl = null; } });
+    const fresh = programSeed.map(cloneStmt);
+    program.splice.apply(program, [0, program.length].concat(fresh));
+    program.forEach(function(b){ buildBlock(b); });
+    trayNodes = traySeed.map(cloneNode);
+    renderSlots();
+    drawWires();
+  }
+
+  /* ---------- adjustable workbench: fold + reorder the side panels ----------
+     The side column outgrows the viewport on long programs. Rather than moving
+     the zones mid-drag, the workbench itself is adjustable: tap a panel's
+     header to fold it, drag the header to reorder. Order + folded state
+     persist in localStorage (key 'beepSidePanels'), so "spare tiles near the
+     top" is a one-time choice. Purely a DOM rearrangement - every element
+     keeps its identity, so zone rects, the stage, and all handlers are
+     untouched. */
+  const sideEl = document.querySelector('.side');
+  const PANEL_STORE = 'beepSidePanels';
+  function panelKey(panel){
+    return panel.querySelector('h2').textContent.trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
+  function loadPanelState(){
+    try { return JSON.parse(localStorage.getItem(PANEL_STORE)) || {}; }
+    catch(e){ return {}; }
+  }
+  function savePanelState(){
+    const st = { order: [], collapsed: {} };
+    sideEl.querySelectorAll(':scope > .panel').forEach(function(pn){
+      const k = panelKey(pn);
+      st.order.push(k);
+      st.collapsed[k] = pn.classList.contains('collapsed');
+    });
+    try { localStorage.setItem(PANEL_STORE, JSON.stringify(st)); } catch(e){}
+  }
+
+  // each panel's explanation paragraph moves into a popover behind a ?-disc
+  // in the header (left of the chevron). One open at a time; outside tap,
+  // scroll or resize closes it.
+  let helpOpen = null;
+  function closeHelp(){
+    if (!helpOpen) return;
+    helpOpen.pop.classList.remove('show');
+    helpOpen = null;
+  }
+  function toggleHelp(btn, pop){
+    if (helpOpen && helpOpen.pop === pop){ closeHelp(); return; }
+    closeHelp();
+    pop.classList.add('show');
+    const r = btn.getBoundingClientRect();
+    const pw = pop.offsetWidth || 260, ph = pop.offsetHeight || 80;
+    const vw = window.innerWidth || 1024, vh = window.innerHeight || 768;
+    let left = Math.max(8, Math.min(r.right - pw, vw - pw - 8));
+    let top = r.bottom + 6;
+    if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 6);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    helpOpen = { btn: btn, pop: pop };
+  }
+  document.addEventListener('pointerdown', function(e){
+    if (helpOpen && !helpOpen.pop.contains(e.target) && !helpOpen.btn.contains(e.target)) closeHelp();
+  }, true);
+  window.addEventListener('resize', closeHelp);
+  window.addEventListener('scroll', closeHelp, true);
+
+  let panelDrag = null;
+  function setupPanel(panel){
+    const head = document.createElement('div');
+    head.className = 'panel-head';
+    const h2 = panel.querySelector('h2');
+    const grip = document.createElement('span');
+    grip.className = 'panel-grip';
+    grip.innerHTML = GRIP_SVG;
+    const chev = document.createElement('span');
+    chev.className = 'panel-chev';
+    chev.textContent = '▾';
+    panel.insertBefore(head, panel.firstChild);
+    head.appendChild(grip);
+    head.appendChild(h2);
+    const note = panel.querySelector(':scope > .tray-note, :scope > .hint');
+    if (note){
+      const help = document.createElement('button');
+      help.type = 'button';
+      help.className = 'panel-help';
+      help.textContent = '?';
+      help.setAttribute('aria-label', 'About this panel');
+      const pop = document.createElement('div');
+      pop.className = 'help-pop';
+      pop.appendChild(note);                    // MOVE the explanation into the popover
+      document.body.appendChild(pop);
+      help.addEventListener('pointerdown', function(e){
+        e.preventDefault();
+        e.stopPropagation();                    // not a fold-tap, not a panel drag
+        toggleHelp(help, pop);
+      });
+      head.appendChild(help);
+    }
+    head.appendChild(chev);
+    head.addEventListener('pointerdown', function(e){
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
+      panelDrag = { panel: panel, head: head, x0: e.clientX, y0: e.clientY, active: false, ph: null };
+      head.setPointerCapture(e.pointerId);
+    });
+  }
+  function onPanelMove(e){
+    if (!panelDrag) return;
+    const pn = panelDrag.panel;
+    if (!panelDrag.active){
+      if (Math.abs(e.clientX - panelDrag.x0) + Math.abs(e.clientY - panelDrag.y0) < 6) return;
+      panelDrag.active = true;
+      const r = pn.getBoundingClientRect();
+      panelDrag.grabDY = e.clientY - r.top;
+      const ph = document.createElement('div');
+      ph.className = 'panel panel-placeholder';
+      ph.style.height = (pn.offsetHeight || 40) + 'px';
+      sideEl.insertBefore(ph, pn);
+      panelDrag.ph = ph;
+      pn.classList.add('panel-dragging');
+      pn.style.width = (r.width || pn.offsetWidth || 300) + 'px';
+      pn.style.position = 'fixed';
+      pn.style.left = r.left + 'px';
+      pn.style.zIndex = '1000';
+    }
+    pn.style.top = (e.clientY - (panelDrag.grabDY || 12)) + 'px';
+    // slide the gap to wherever the panel would land
+    let ref = null;
+    const sibs = sideEl.querySelectorAll(':scope > .panel');
+    for (let k = 0; k < sibs.length; k++){
+      const o = sibs[k];
+      if (o === pn || o === panelDrag.ph) continue;
+      const r = o.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2){ ref = o; break; }
+    }
+    sideEl.insertBefore(panelDrag.ph, ref);       // null ref -> the end
+  }
+  function onPanelUp(){
+    if (!panelDrag) return;
+    const d = panelDrag; panelDrag = null;
+    if (!d.active){
+      const folded = d.panel.classList.toggle('collapsed');   // a tap: fold / unfold
+      savePanelState();
+      // anything measured while a panel was display:none is wrong - the stage
+      // sprites especially (a collapsed stage has zero size). Re-lay-out on
+      // unfold so a page that LOADED with the stage folded recovers too.
+      if (!folded) layout();
+      return;
+    }
+    d.panel.classList.remove('panel-dragging');
+    d.panel.style.position = ''; d.panel.style.top = ''; d.panel.style.left = '';
+    d.panel.style.width = ''; d.panel.style.zIndex = '';
+    sideEl.insertBefore(d.panel, d.ph);
+    d.ph.remove();
+    savePanelState();
+  }
+  document.addEventListener('pointermove', onPanelMove);
+  document.addEventListener('pointerup', onPanelUp);
+  document.addEventListener('pointercancel', onPanelUp);
+
+  (function initPanels(){
+    const st = loadPanelState();
+    document.querySelectorAll('.side > .panel').forEach(setupPanel);
+    if (st.order && st.order.length){
+      const byKey = {};
+      sideEl.querySelectorAll(':scope > .panel').forEach(function(pn){ byKey[panelKey(pn)] = pn; });
+      st.order.forEach(function(k){
+        if (byKey[k]){ sideEl.appendChild(byKey[k]); delete byKey[k]; }
+      });
+      for (const k in byKey) sideEl.appendChild(byKey[k]);   // panels added since the save
+    }
+    if (st.collapsed){
+      sideEl.querySelectorAll(':scope > .panel').forEach(function(pn){
+        if (st.collapsed[panelKey(pn)]) pn.classList.add('collapsed');
+      });
+    }
+  })();
+
+  /* ---------- init ---------- */
+  function layout(){
+    drawWires();
+    moveTo('ball'); moveTo('paddle'); placeBricks();
+  }
+  window.addEventListener('resize', layout);
+  VARS.forEach(function(k){ state[k] = START[k]; });
+  buildPack();
+  renderSlots();
+  renderPack(); layout(); robotToBlock(0);
+})();
+</script>
+</body>
+</html>
