@@ -4,7 +4,7 @@
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 
-const html = fs.readFileSync(__dirname + '/beep-runs-your-code-v5.html', 'utf-8');
+const html = fs.readFileSync(__dirname + '/beep.html', 'utf-8');
 const dom = new JSDOM(html, {
   runScripts: 'dangerously',
   url: 'http://localhost/',
