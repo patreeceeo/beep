@@ -1443,12 +1443,12 @@
     d.el.style.left = ''; d.el.style.width = '';
     blocksBox.insertBefore(d.el, d.ph);
     d.ph.remove();
-    reorderProgramFromDom();
+    VERBS.insert();                                         // stmt x gap -> insert (commit new order)
     drawWires();
     robotToBlock(lastRobotTarget);
     if (focusedBlock) highlightRopes(focusedBlock, true);   // keep edit-highlight after a drag
-    if (e && overZone(e, trashEl)){ requestRemoveStmt(d.block, 'trash'); return; }
-    if (e && overZone(e, trayEl)){ requestRemoveStmt(d.block, 'stash'); return; }
+    if (e && overZone(e, trashEl)){ requestRemoveStmt(d.block, 'trash'); return; }  // stmt x zone-trash -> remove
+    if (e && overZone(e, trayEl)){ requestRemoveStmt(d.block, 'stash'); return; }   // stmt x zone-tray -> stash
     if (d.minted) bindJumpTarget(d.block);    // a fresh jump binds to the nearest flag
   }
 
@@ -1708,7 +1708,7 @@
     let handled = false;
     if (moved){
       if (target){
-        if (dropAllowed(el, target)){ swapSlots(el.dataset.sl, target.dataset.sl); handled = true; }
+        if (dropAllowed(el, target)){ VERBS.swap(el.dataset.sl, target.dataset.sl); handled = true; }  // piece x slot -> swap
       } else if (pieceDrag.role !== 'fixed' && overZone(e, trashEl)){
         handled = dropOnZone(el, 'trash');
       } else if (pieceDrag.role === 'operand' && overZone(e, trayEl)){
@@ -1767,7 +1767,7 @@
     const s = slotReg[el.dataset.sl];
     if (!s) return false;
     if (Array.isArray(s.parent)){                 // a spare tile
-      if (kind === 'trash'){ s.parent.splice(s.field, 1); renderSlots(); return true; }
+      if (kind === 'trash'){ VERBS.discardTile(s.parent, s.field); return true; }  // piece-tile x zone-trash -> discard
       return false;                               // dropping a tile back on the tray = no-op
     }
     if (s.parent.type === 'bin'){                 // an operand: offer to collapse the bin
@@ -1813,10 +1813,8 @@
       else if (ev.key === 'Enter'){ ev.preventDefault(); doCollapse(); }
     }
     function doCollapse(){
-      const id = slotIdOf(binNode);               // bin is still in place until now
-      if (id){ setSlotNode(id, survivor); survivor._justSet = true; }
-      if (keepTile) trayNodes.push(cloneNode(removed));
-      close(); renderSlots(); clearJustSetSoon();
+      close();
+      VERBS.collapse(binNode, removed, survivor, keepTile);   // operand x zone -> collapse
     }
     veil.querySelector('.cm-cancel').addEventListener('click', close);
     veil.querySelector('.cm-go').addEventListener('click', doCollapse);
@@ -2007,8 +2005,8 @@
     }
     if (Array.isArray(s.parent)){                 // a spare tile: it just leaves
       opt('trash this tile', function(){
-        s.parent.splice(s.field, 1);
-        cancelLeafPop(); renderSlots();
+        cancelLeafPop();
+        VERBS.discardTile(s.parent, s.field);     // piece-tile x zone-trash -> discard
       });
       pop.appendChild(sec);
       return;
@@ -2177,22 +2175,15 @@
     if (target && dropAllowed(ghost, target)){
       const id = target.dataset.sl;
       if (item.kind === 'op'){
-        wrapNode(slotNode(id), item.op);          // same move as the "wrap in" menu
+        VERBS.wrap(id, item.op);                  // proto-op x slot -> wrap
       } else {
-        const displaced = slotNode(id);
-        setSlotNode(id, pieceDrag.node);
-        pieceDrag.node._justSet = true;
-        displaced._justSet = true;
-        trayNodes.push(displaced);                // never lost: it retreats to the spares
-        renderSlots(); clearJustSetSoon();
+        VERBS.replace(id, pieceDrag.node);        // proto-value x slot -> replace
       }
       handled = true;
     } else if (overZone(e, trashEl)){
       handled = true;                             // fresh piece, never in the tree: let it go
     } else if (item.kind === 'value' && overZone(e, trayEl)){
-      pieceDrag.node._justSet = true;
-      trayNodes.push(pieceDrag.node);             // mint a spare tile
-      renderSlots(); clearJustSetSoon();
+      VERBS.stashTile(pieceDrag.node);            // proto-value x zone-tray -> stash
       handled = true;
     }
     if (handled){
@@ -2327,6 +2318,95 @@
       if (o !== focusedBlock) o.contentEl.innerHTML = renderStmt(o);
     });
   }
+
+  /* ================= UNIFIED DROP MODEL — Stage 1 (verbs) =================
+     Three parallel drag subsystems (pieceDrag, the block drag, panelDrag) had
+     each fused payload + target + resolution. Stage 1 pulls the RESOLUTIONS
+     out into one closed set of VERBS: pure-ish mutations over the tree/program
+     that are the single home of "what a drop DOES". Handlers (onSlotUp,
+     finishPaletteDrag, dropOnZone, the collapse-dialog commit, removeStmt) and
+     the tap-menus (appendZoneSection) all route through these instead of
+     duplicating the logic inline. Behaviour is byte-for-byte identical; the
+     value is that the language's rules now live in ONE table.
+
+     The (payload x target) -> verb map (DROP_TABLE below) is exhaustive and
+     tested. `null` = no tree mutation (snap home / cancel / no-op).
+
+        payload       | slot     | gap     | zone-trash | zone-tray
+        --------------+----------+---------+------------+----------
+        piece-operand | swap     |   -     | collapse   | collapse
+        piece-tile    | swap     |   -     | discard    |   -
+        piece-fixed   | swap     |   -     |   -        |   -
+        proto-value   | replace  |   -     |   -        | stash
+        proto-op      | wrap     |   -     |   -        |   -
+        stmt          |   -      | insert  | remove     | stash
+        stmt-proto    |   -      | insert  |   -        |   -
+
+     Notes: `collapse` carries a keepTile flag (tray keeps the dragged operand
+     as a spare, trash discards it). `stash` means "into the spare tiles":
+     proto-value mints a fresh tile, a stmt moves the whole block there
+     (removeStmt kind 'stash'). Dialogs are verb middleware: collapse and
+     remove-of-a-wired-label confirm first; the nemesis is post-confirm theater
+     on remove. */
+  const VERBS = {
+    // swap two expression slots' nodes (the always-valid core: no slot emptied)
+    swap: function(idA, idB){ swapSlots(idA, idB); },
+    // drop a fresh value into a slot; the node it displaces retreats to spares
+    replace: function(id, node){
+      const displaced = slotNode(id);
+      setSlotNode(id, node);
+      node._justSet = true;
+      displaced._justSet = true;
+      trayNodes.push(displaced);                // never lost: it retreats to the spares
+      renderSlots(); clearJustSetSoon();
+    },
+    // wrap the node in a slot inside op (op.identity seeds the fresh operand)
+    wrap: function(id, op){ wrapNode(slotNode(id), op); },
+    // replace a bin by the operand you did NOT drag; keepTile spares the other
+    collapse: function(binNode, removed, survivor, keepTile){
+      const id = slotIdOf(binNode);             // bin is still in place until now
+      if (id){ setSlotNode(id, survivor); survivor._justSet = true; }
+      if (keepTile) trayNodes.push(cloneNode(removed));
+      renderSlots(); clearJustSetSoon();
+    },
+    // mint a spare tile from a fresh piece (proto-value dropped on the tray)
+    stashTile: function(node){
+      node._justSet = true;
+      trayNodes.push(node);                     // mint a spare tile
+      renderSlots(); clearJustSetSoon();
+    },
+    // remove a spare tile from the tray collection
+    discardTile: function(parent, field){
+      parent.splice(field, 1);
+      renderSlots();
+    },
+    // commit a new program order after a statement drop (gap target)
+    insert: function(){ reorderProgramFromDom(); },
+    // delete/stash a whole statement (kind 'delete' | 'stash')
+    remove: function(b, kind){ removeStmt(b, kind); }
+  };
+
+  const DROP_PAYLOADS = ['piece-operand','piece-tile','piece-fixed','proto-value','proto-op','stmt','stmt-proto'];
+  const DROP_TARGETS  = ['slot','gap','zone-trash','zone-tray'];
+  const DROP_VERBS    = ['swap','replace','wrap','insert','stash','discard','collapse','remove'];
+  // payload x target -> verb name (or null = no tree mutation). Exhaustive.
+  const DROP_TABLE = {
+    'piece-operand': { slot:'swap',    gap:null,     'zone-trash':'collapse', 'zone-tray':'collapse' },
+    'piece-tile':    { slot:'swap',    gap:null,     'zone-trash':'discard',  'zone-tray':null       },
+    'piece-fixed':   { slot:'swap',    gap:null,     'zone-trash':null,       'zone-tray':null       },
+    'proto-value':   { slot:'replace', gap:null,     'zone-trash':null,       'zone-tray':'stash'    },
+    'proto-op':      { slot:'wrap',    gap:null,     'zone-trash':null,       'zone-tray':null       },
+    'stmt':          { slot:null,      gap:'insert', 'zone-trash':'remove',   'zone-tray':'stash'    },
+    'stmt-proto':    { slot:null,      gap:'insert', 'zone-trash':null,       'zone-tray':null       }
+  };
+  function verbFor(payload, target){
+    const row = DROP_TABLE[payload];
+    return row && target in row ? row[target] : null;
+  }
+  // testing seam: lets the verb-map suite read the model without driving the DOM
+  window.__drop = { VERBS:VERBS, DROP_TABLE:DROP_TABLE, verbFor:verbFor,
+                    PAYLOADS:DROP_PAYLOADS, TARGETS:DROP_TARGETS, VERBS_LIST:DROP_VERBS };
+  /* =================== end unified drop model (Stage 1) =================== */
 
   // the label-deletion dialog: the one sanctioned crack in always-valid.
   // While it is open, the ropes that would dangle are highlighted.

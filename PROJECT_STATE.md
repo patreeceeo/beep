@@ -13,7 +13,7 @@ resume without re-deriving context.
 
 ## Files in this folder
 Persisted (source of truth): `beep.html`, this file,
-`test-phase8.js`, `test-phase9.js`, `package.json` (+ lockfile).
+`test-phase8.js`, `test-phase9.js`, `test-drop.js`, `package.json` (+ lockfile).
 Generated - recreate, don't commit: `node_modules` (`npm install`),
 `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
 (one-shot edit scripts, already applied).
@@ -228,11 +228,18 @@ Why verbs are the valuable seam:
   target kind (`flag-anchor`) resolving to the existing retarget.
 
 Staged migration (protect the 90 green asserts - NO big-bang):
-- **Stage 1:** extract verbs as pure functions over tree/program from the
-  existing resolution code (swapSlots, finishPaletteDrag, dropOnZone,
-  removeStmt, collapse-dialog commit); point existing handlers at them.
-  Behavior identical; suites stay green.
-- **Stage 2:** move zone acceptance/highlight into the shared
+- **Stage 1 - DONE (this session):** the closed set of verbs now lives in a
+  `VERBS` object + a `DROP_TABLE` (payload x target -> verb) with a `verbFor`
+  lookup and a `window.__drop` testing seam, in a commented "UNIFIED DROP
+  MODEL - Stage 1" block after `refreshAllStmts`.
+  `swap`/`replace`/`wrap`/`collapse`/`stashTile`/`discardTile`/`insert`/`remove`
+  were factored out of swapSlots, finishPaletteDrag, dropOnZone, the
+  collapse-dialog commit, and removeStmt/reorderProgramFromDom; every handler +
+  `appendZoneSection` now routes through them. Behaviour byte-for-byte
+  identical; phase-8 (27) + phase-9 (63) stay green and the new `test-drop.js`
+  (20 asserts) proves the table is total, exhaustive, and realises exactly the
+  8 closed verbs.
+- **Stage 2 (next):** move zone acceptance/highlight into the shared
   `accepts(payload, target)` gate across both drag systems.
 - **Stage 3 (optional):** merge the pointer loops into one lifecycle
   (lift -> track -> hit-test -> highlight -> resolve -> cleanup). Pieces and

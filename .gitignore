@@ -1,0 +1,4 @@
+node_modules/
+beep-extract.js
+patch*.py
+.claude/
