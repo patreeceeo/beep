@@ -395,6 +395,13 @@
     text-shadow:0 0 6px #fff, 0 0 14px var(--sun);
   }
   #nemesis.zapping .zap-flash{ animation:zapflash .4s ease-out; }
+  #nemesis.warn{ animation:nemwarn .4s ease-in-out 3; }
+  #nemesis.warn .zap-flash{ animation:zapflash .5s ease-out 2; }
+  @keyframes nemwarn{
+    0%,100%{ transform:translateX(0) rotate(0); }
+    25%{ transform:translateX(-4px) rotate(-7deg); }
+    75%{ transform:translateX(4px) rotate(7deg); }
+  }
   @keyframes cackle{
     from{ transform:rotate(-10deg) translateY(-1px); }
     to{ transform:rotate(10deg) translateY(1px); }
@@ -747,7 +754,9 @@
   function keyCond(key, arrowLabel){ return { type:'key', key:key, arrowLabel:arrowLabel }; }
   function touchCond(target, label){ return { type:'touch', target:target, label:label }; }
 
-  function opGlyph(op){ return op === '-' ? '−' : '+'; }
+  function opGlyph(op){
+    return op === '-' ? '\u2212' : op === '*' ? '\u00d7' : op === '/' ? '\u00f7' : '+';
+  }
   function valStr(x){ return x < 0 ? '('+x+')' : String(x); }
 
   // evaluate an expression/condition against the current backpack -> number | boolean
@@ -756,7 +765,13 @@
       case 'num':   return e.value;
       case 'var':   return state[e.name];
       case 'bin':   { const l = evalExpr(e.left), r = evalExpr(e.right);
-                      return e.op === '-' ? l - r : l + r; }
+                      switch (e.op){
+                        case '-': return l - r;
+                        case '*': return l * r;
+                        case '/': if (r === 0){ divByZero = true; return 0; }  // /0 is an ERROR: flag it
+                                  return l / r;
+                        default:  return l + r;                 // '+'
+                      } }
       case 'key':   return isKeyPressed(e.key);
       case 'touch': return isTouching(e.target);
     }
@@ -810,6 +825,7 @@
 
   // run a statement -> { bubble, flash?, jump?, pause? } (same result shape as before)
   function execStmt(node){
+    divByZero = false;               // cleared per statement; evalExpr sets it on a /0
     switch(node.type){
       case 'label':  return { bubble:'⚑ '+node.name, pause:400 };
       case 'goto':   return { bubble:'wheee → ⚑ '+node.target+'!', jump:node.target };
@@ -824,7 +840,9 @@
   function execAssign(node){
     const old   = state[node.target];
     const shown = bubbleExpr(node.expr);      // capture operand values BEFORE the write
+    divByZero = false;                        // (re)clear right before the real evaluation
     let v = evalExpr(node.expr);
+    if (divByZero) return { divZero:true, flash:node.target };   // /0: refuse the write; Beep will halt
     if (node.clamp) v = Math.min(Math.max(v, node.clamp[0]), node.clamp[1]);
     state[node.target] = v;
     if (node.clamp && v === old) return { bubble:'at the edge!', flash:node.target };
@@ -1135,6 +1153,9 @@
   let busy = false;         // an animated step is in flight
   let mode = 'idle';        // idle | watch | play
   let timer = null;
+  let divByZero = false;    // set by evalExpr on a /0; read by exec + the authoring scan
+  let knownDivZero = new Set();   // '/' nodes already dividing by zero (to spot NEW ones)
+  let nemesisWarnT = null;
   let current = null;       // the in-flight animated step: {i, phase, result, timers}
 
   function stepAnimated(done){
@@ -1185,10 +1206,68 @@
     showBubble('⚑ ' + flagName + '? where did it go??');
     setTimeout(function(){ robot.classList.remove('confused'); }, 1600);
   }
+  // Beep reaches a live divide-by-zero: he stops, baffled, exactly like a lost
+  // jump. The callers return BEFORE nextPc, so pc stays on the offending row.
+  function beepConfusedDivide(){
+    stopAll();
+    robot.classList.remove('walking');
+    robot.classList.remove('leaping');
+    robot.classList.add('confused');
+    showBubble('\u00f7 0?! that\u2026 does not compute');
+    setTimeout(function(){ robot.classList.remove('confused'); }, 1600);
+  }
+  // --- divide-by-zero as an authoring WARNING --------------------------------
+  // A '/' whose divisor currently evaluates to 0 is an error waiting to happen.
+  // After each edit we scan the whole program + tray; a NEW one summons the
+  // nemesis to warn (he points, he doesn't zap). The divisor is read with the
+  // same live values bubbleExpr shows, so this is the "current instance".
+  function collectDivZero(node, out){
+    if (!node || node.type !== 'bin') return;
+    collectDivZero(node.left, out);
+    collectDivZero(node.right, out);
+    if (node.op === '/'){
+      const saved = divByZero; divByZero = false;
+      const r = evalExpr(node.right);
+      if (divByZero || r === 0) out.add(node);
+      divByZero = saved;
+    }
+  }
+  function scanDivZero(){
+    const out = new Set();
+    program.forEach(function(b){
+      if (b.expr) collectDivZero(b.expr, out);
+      if (b.cond) collectDivZero(b.cond, out);
+    });
+    trayNodes.forEach(function(n){ collectDivZero(n, out); });
+    return out;
+  }
+  function subtreeHas(root, node){
+    if (root === node) return true;
+    if (!root || root.type !== 'bin') return false;
+    return subtreeHas(root.left, node) || subtreeHas(root.right, node);
+  }
+  function stmtOfNode(node){
+    return program.find(function(b){
+      return (b.expr && subtreeHas(b.expr, node)) || (b.cond && subtreeHas(b.cond, node));
+    }) || null;
+  }
+  function checkDivZeroEdit(){
+    const now = scanDivZero();
+    let fresh = null;
+    now.forEach(function(n){ if (!knownDivZero.has(n)) fresh = n; });
+    knownDivZero = now;
+    if (fresh) nemesisWarn(fresh);
+  }
 
   function finishPhase(step, done){
     hideBubble();
     highlight(-1);
+    if (step.result.divZero){
+      beepConfusedDivide();
+      busy = false; current = null;
+      if (done) done();
+      return;                                   // pc stays on the broken statement
+    }
     const t = nextPc(step.i, step.result);
     if (t === 'lost'){
       beepConfused(step.result.jump);
@@ -1230,6 +1309,12 @@
     }
     hideBubble();
     highlight(-1);
+    if (step.result && step.result.divZero){
+      beepConfusedDivide();
+      robot.classList.remove('walking'); robot.classList.remove('leaping');
+      busy = false; current = null;
+      return;                                   // pc stays on the broken statement
+    }
     if (step.phase === 'leap'){
       flagPulse(pc);                     // pc already resolved before the leap animation
     } else {
@@ -1253,6 +1338,7 @@
     robotToBlock(i);
     const r = b.exec();
     renderPack();
+    if (r.divZero){ beepConfusedDivide(); return; }   // pc stays on the broken statement
     const t = nextPc(i, r);
     if (t === 'lost'){ beepConfused(r.jump); return; }
     if (t !== null){ wireZing(b); flagPulse(t); }
@@ -1566,6 +1652,7 @@
       el.addEventListener('pointerdown', onOpDown);   // tap the sign to flip + / -
     });
     drawWires();   // heights can shift; keep jump wires attached
+    checkDivZeroEdit();   // did this edit author a fresh /0? warn via the nemesis
   }
 
   function setFocus(b){
@@ -1944,8 +2031,19 @@
      is a one-line registry entry. */
   const OPS = [
     { op:'+', identity:0, in:'number', out:'number' },
-    { op:'-', identity:0, in:'number', out:'number' }
+    { op:'-', identity:0, in:'number', out:'number' },
+    { op:'*', identity:1, in:'number', out:'number' },
+    { op:'/', identity:1, in:'number', out:'number' }
   ];
+  // toggle partners for the operator tap-menu's "make it ..." flip (same type, so
+  // the always-valid invariant holds); wrap seeds identity (0 for +/-, 1 for x/div)
+  const FLIP = { '+':'-', '-':'+', '*':'/', '/':'*' };
+  // test-only seam: unit-test evaluation + op glyphs without driving the DOM
+  function divCheck(e){ divByZero = false; const value = evalExpr(e); return { value:value, divByZero:divByZero }; }
+  window.__lang = { evalExpr:evalExpr, opGlyph:opGlyph, OPS:OPS, FLIP:FLIP,
+                    bin:bin, num:num, v:v,
+                    divCheck:divCheck, execStmt:execStmt, stepInstant:stepInstant, state:state,
+                    dividesByZero:function(node){ const set=new Set(); collectDivZero(node, set); return set.size > 0; } };
   function opsFor(node){
     const id = slotIdOf(node);
     const inT = typeOf(node);
@@ -2096,8 +2194,8 @@
     const pop = openPop(anchorEl);
     popTitle(pop, 'operation');
     const grid = popGrid(pop);
-    optButton(grid, 'make it ' + (node.op === '+' ? '\u2212' : '+'), false, function(){
-      node.op = (node.op === '+' ? '-' : '+'); markEdited(node); cancelLeafPop();
+    optButton(grid, 'make it ' + opGlyph(FLIP[node.op]), false, function(){
+      node.op = FLIP[node.op]; markEdited(node); cancelLeafPop();
     });
     appendWrapSection(pop, node);
     appendZoneSection(pop, node);
@@ -2487,6 +2585,16 @@
      to removeStmt, just postponed to the end of the show. */
   const nemesis = document.getElementById('nemesis');
   let nemesisBusy = false;
+  // the nemesis as a WARNING (not the deletion zap): pop in beside the offending
+  // statement, shake, and leave. Skipped while the zap show is already running.
+  function nemesisWarn(node){
+    if (nemesisBusy) return;
+    const b = stmtOfNode(node);
+    nemesisTo(b && b.el ? b.el : blocksBox);
+    nemesis.classList.add('here', 'warn');
+    clearTimeout(nemesisWarnT);
+    nemesisWarnT = setTimeout(function(){ nemesis.classList.remove('here', 'warn'); }, 1700);
+  }
   function nemesisTo(el){
     nemesis.style.left = (blocksBox.clientWidth + 4) + 'px';   // just off the right edge
     nemesis.style.top  = (el.offsetTop + el.offsetHeight/2 - 23) + 'px';

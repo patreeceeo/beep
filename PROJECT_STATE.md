@@ -13,7 +13,8 @@ resume without re-deriving context.
 
 ## Files in this folder
 Persisted (source of truth): `beep.html`, this file,
-`test-phase8.js`, `test-phase9.js`, `test-drop.js`, `package.json` (+ lockfile).
+`test-phase8.js`, `test-phase9.js`, `test-drop.js`, `test-grammar.js`,
+`test-diverror.js`, `package.json` (+ lockfile).
 Generated - recreate, don't commit: `node_modules` (`npm install`),
 `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
 (one-shot edit scripts, already applied).
@@ -174,7 +175,9 @@ substitute behind. Corollaries the whole codebase leans on:
 - Grip tap → statement menu: duplicate / to spare tiles / delete.
 
 ## Operation registry (built for scale)
-`OPS = [{op, identity, in, out}]` (today: `+` and `−`, both number→number, id 0).
+`OPS = [{op, identity, in, out}]` (today: `+`,`−` (id 0) and `×`,`÷` (id 1), all
+number→number). A `FLIP` map pairs same-type toggle partners (`+`↔`−`, `×`↔`÷`)
+for the operator tap-menu's "make it ..." flip.
 `opsFor(node)` filters by `in === typeOf(node)` AND `out === expectedType(slot)` — a
 two-sided filter, so in-place wrap is restricted to type-preserving ops (keeps the
 invariant; a boolean sensor correctly shows no wrap). Adding an op/type = one entry.
@@ -190,8 +193,24 @@ invariant; a boolean sensor correctly shows no wrap). Adding an op/type = one en
   compact view (`htmlExpr`) adds `( )` and spaces — assert structure, not punctuation.
 - **Edits applied via a bash Python patch script** (exact-match replace, assert count==1),
   because the file-tools sometimes can't overwrite the mounted file on Windows.
+- **If `require('jsdom')` hangs** (the mounted `node_modules` can wedge over the
+  Windows mount): `npm install jsdom` into a sandbox-local dir (e.g. `/tmp/env`),
+  copy `beep.html` + `test-*.js` there and run from there. `node --check` and the
+  Python patch scripts still work against the mounted copy — only the jsdom load
+  needs the local install.
 
-## PLANNED NEXT: unified drop model (start here)
+## Unified drop model (Stages 1 + 2 DONE; Stage 3 deferred by design)
+**Status:** the valuable seam has landed. Stage 1 gave a closed set of `VERBS`
++ a `DROP_TABLE` (payload x target -> verb) with `verbFor`; Stage 2 gave the
+single `accepts(payload, target)` gate + `payloadOf` + `ZONE_ACCEPT`, and both
+drag systems now route highlight AND resolution through them. `test-drop.js`
+(33 asserts) tests the table + gate exhaustively; phase-8 (27) + phase-9 (63)
+stay green (123 total). Stage 3 (merging the two pointer loops into one
+lifecycle) is intentionally NOT done: the doc's own call is that it buys
+coupling over clarity unless Phase 11 demands it, and verbs + gate are where
+the value was. Pick it up then, not before. The original motivation + design
+is preserved below for whoever tackles Stage 3 or Phase 11.
+
 Motivation: three parallel drag subsystems have accreted, each fusing payload,
 targets, and resolution: `pieceDrag` (onSlotDown/Move/Up; swap/replace/wrap +
 dropOnZone + finishPaletteDrag), the block drag (onPointerDown/Move/End on
@@ -274,8 +293,28 @@ Staged migration (protect the 90 green asserts - NO big-bang):
   The operator tap-menu covers it; a drop path would need a root target element.
 - **Phase 9:** add/delete/duplicate whole statements. **Phase 10:** label + jump
   authoring (consider migrating jump targets from names to stable ids).
-- **Consolidation:** unified drop model, an undo stack (cheap given the clone snapshots),
+- **Consolidation:** ~~unified drop model~~ (Stages 1+2 landed - verbs + accepts gate;
+  Stage 3 lifecycle-merge deferred), an undo stack (cheap given the clone snapshots),
   JSON export/import (the AST is already plain data).
-- **Grammar expansion (orthogonal to editing UI):** `×`/`÷` (extend `opGlyph` for
-  `*`,`/`), comparisons (number→boolean — needs a "build INTO a boolean slot" flow, not
-  in-place wrap), and/or/not. Each is a localized `evalExpr` + `opGlyph` + `OPS` addition.
+- **Grammar expansion (orthogonal to editing UI):**
+  - ~~`×`/`÷`~~ **DONE (Phase 11a, this session):** two number→number `OPS`
+    entries (identity 1) + `opGlyph`/`evalExpr` cases + `FLIP`; palette tiles and
+    wrap menus auto-derived from `OPS`, so no UI wiring was needed.
+    `test-grammar.js` (36 asserts) covers it; a `window.__lang` seam unit-tests
+    evaluation. phase-8's op-tile counts were bumped 2→4.
+  - ~~`÷` by zero~~ **DONE (this session): divide-by-zero is an ERROR, not a
+    silent 0.** `evalExpr` sets a `divByZero` flag (still returns 0 so sprite
+    math stays finite until the caller halts); `execAssign` refuses the write
+    and returns `{divZero}`. Two surfaces: **(authoring)** after every edit
+    `checkDivZeroEdit` (in `renderSlots`) scans program+tray for a `/` whose
+    divisor currently evaluates to 0 — a NEW one summons the **nemesis as a
+    warning** (`nemesisWarn` + `.warn` shake; transition-tracked via
+    `knownDivZero` so it fires once per creation). **(runtime)** when Beep
+    reaches a live `/0` he stops **confused** (`beepConfusedDivide`, mirrors the
+    lost-jump `beepConfused`); `stepInstant`/`finishPhase`/`fastForward` bail
+    before `nextPc`, so pc parks on the broken row. `test-diverror.js` (15
+    asserts) proves both surfaces end-to-end (real gestures + `stepInstant`).
+  - **Still open:** comparisons (number→boolean — needs a "build INTO a boolean
+    slot" flow, NOT in-place wrap, since conditions are key/touch predicates, not
+    expressions) and and/or/not (boolean→boolean, plus unary `not` which breaks
+    the binary-`bin` assumption). Both are the Phase-11 design work.
