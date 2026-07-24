@@ -239,16 +239,27 @@ Staged migration (protect the 90 green asserts - NO big-bang):
   identical; phase-8 (27) + phase-9 (63) stay green and the new `test-drop.js`
   (20 asserts) proves the table is total, exhaustive, and realises exactly the
   8 closed verbs.
-- **Stage 2 (next):** move zone acceptance/highlight into the shared
-  `accepts(payload, target)` gate across both drag systems.
+- **Stage 2 - DONE (this session):** zone acceptance + highlight now flow
+  through one `accepts(payload, target)` gate (in the unified drop block).
+  `accepts` type/cycle-checks slot targets (delegating to `dropAllowed`) and
+  reads a payload-only `ZONE_ACCEPT` map for zone/gap targets; `payloadOf`
+  turns a live drag descriptor (pieceDrag or a block drag) into a payload
+  string. Both drag systems (markTargets, onSlotMove, onSlotUp,
+  finishPaletteDrag; onPointerMove, onPointerEnd) call it for BOTH highlight
+  and resolution, so the scattered `role !== 'fixed'` / `canStash` / bare
+  `overZone` checks are gone (`canStash` deleted). Highlight follows `accepts`;
+  the verb still comes from DROP_TABLE, so a zone can accept a drop yet fire no
+  verb (a fresh palette piece over Trash is a consumed no-op cancel). Behaviour
+  identical; `test-drop.js` grew to 33 asserts (T8-T12 cover the gate) and
+  phase-8/9 stay green.
 - **Stage 3 (optional):** merge the pointer loops into one lifecycle
   (lift -> track -> hit-test -> highlight -> resolve -> cleanup). Pieces and
   statements genuinely differ in hit-testing; `panelDrag` is chrome, not
   language material - forcing it in buys coupling, not clarity. Only do this
   if Phase 11 demands it; verbs + gate are where the value is.
-- Verification per stage: both suites green (`node test-phase8.js`,
-  `node test-phase9.js`), plus a new exhaustive payload x target table
-  test once the verb map exists.
+- Verification per stage: all three suites green (`node test-phase8.js`,
+  `node test-phase9.js`, `node test-drop.js`); the last is the exhaustive
+  payload x target verb-map + acceptance-gate table test (33 asserts).
 
 ## Open threads / next
 - ~~"Fill a slot with a variable"~~ solved by Phase 8: drag the variable's palette

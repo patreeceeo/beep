@@ -1419,8 +1419,8 @@
     blocksBox.insertBefore(drag.ph, ref || robot);
     // Phase 9: a whole statement can leave the program - Trash deletes it, the
     // spare tiles keep it for later
-    if (overZone(e, trashEl)) setZoneHover(trashEl);
-    else if (overZone(e, trayEl)) setZoneHover(trayEl);
+    if (accepts('stmt', { kind:'zone-trash' }) && overZone(e, trashEl)) setZoneHover(trashEl);
+    else if (accepts('stmt', { kind:'zone-tray' }) && overZone(e, trayEl)) setZoneHover(trayEl);
     else setZoneHover(null);
     drawWires();
     robotToBlock(lastRobotTarget);
@@ -1447,8 +1447,8 @@
     drawWires();
     robotToBlock(lastRobotTarget);
     if (focusedBlock) highlightRopes(focusedBlock, true);   // keep edit-highlight after a drag
-    if (e && overZone(e, trashEl)){ requestRemoveStmt(d.block, 'trash'); return; }  // stmt x zone-trash -> remove
-    if (e && overZone(e, trayEl)){ requestRemoveStmt(d.block, 'stash'); return; }   // stmt x zone-tray -> stash
+    if (e && accepts('stmt', { kind:'zone-trash' }) && overZone(e, trashEl)){ requestRemoveStmt(d.block, 'trash'); return; }  // stmt x zone-trash -> remove
+    if (e && accepts('stmt', { kind:'zone-tray' }) && overZone(e, trayEl)){ requestRemoveStmt(d.block, 'stash'); return; }   // stmt x zone-tray -> stash
     if (d.minted) bindJumpTarget(d.block);    // a fresh jump binds to the nearest flag
   }
 
@@ -1615,7 +1615,7 @@
     document.querySelectorAll('[data-sl]').forEach(function(el){
       // exclude self and anything nested with it (prevents building a cycle)
       if (el === self || self.contains(el) || el.contains(self)){ el.classList.remove('drop-ok'); return; }
-      el.classList.toggle('drop-ok', on && dropAllowed(self, el));
+      el.classList.toggle('drop-ok', on && accepts(payloadOf(pieceDrag), { kind:'slot', el:el }));
     });
   }
   let hovered = null;
@@ -1689,11 +1689,12 @@
     pieceDrag.el.style.left = (pieceDrag.rect.left + dx) + 'px';
     pieceDrag.el.style.top  = (pieceDrag.rect.top + dy) + 'px';
     const t = pieceUnder(e, pieceDrag.el);
-    setHover(t && dropAllowed(pieceDrag.el, t) ? t : null);   // only valid targets light up
+    const payload = payloadOf(pieceDrag);
+    setHover(t && accepts(payload, { kind:'slot', el:t }) ? t : null);   // only valid targets light up
     // a removable/collapsible piece can also drop on Trash (discard) or, for a bin
     // operand, on the open tray area (keep as a tile). Light the zone it is over.
-    if (pieceDrag.role !== 'fixed' && overZone(e, trashEl)) setZoneHover(trashEl);
-    else if (canStash(pieceDrag) && !t && overZone(e, trayEl)) setZoneHover(trayEl);
+    if (accepts(payload, { kind:'zone-trash' }) && overZone(e, trashEl)) setZoneHover(trashEl);
+    else if (accepts(payload, { kind:'zone-tray' }) && !t && overZone(e, trayEl)) setZoneHover(trayEl);
     else setZoneHover(null);
   }
   function onSlotUp(e){
@@ -1709,9 +1710,9 @@
     if (moved){
       if (target){
         if (dropAllowed(el, target)){ VERBS.swap(el.dataset.sl, target.dataset.sl); handled = true; }  // piece x slot -> swap
-      } else if (pieceDrag.role !== 'fixed' && overZone(e, trashEl)){
+      } else if (accepts(payloadOf(pieceDrag), { kind:'zone-trash' }) && overZone(e, trashEl)){
         handled = dropOnZone(el, 'trash');
-      } else if (pieceDrag.role === 'operand' && overZone(e, trayEl)){
+      } else if (accepts(payloadOf(pieceDrag), { kind:'zone-tray' }) && overZone(e, trayEl)){
         handled = dropOnZone(el, 'stash');
       }
     } else {
@@ -2137,12 +2138,6 @@
     }
     return compatible(dragEl, targetEl);
   }
-  // who may drop on the tray's open area: a bin operand (collapse-and-keep) or a
-  // fresh value from the palette (mint a tile)
-  function canStash(d){
-    return d.role === 'operand' || (d.role === 'proto' && d.proto.kind === 'value');
-  }
-
   function onPaletteDown(e){
     if (e.button !== undefined && e.button !== 0) return;
     if (pieceDrag) return;
@@ -2180,9 +2175,9 @@
         VERBS.replace(id, pieceDrag.node);        // proto-value x slot -> replace
       }
       handled = true;
-    } else if (overZone(e, trashEl)){
-      handled = true;                             // fresh piece, never in the tree: let it go
-    } else if (item.kind === 'value' && overZone(e, trayEl)){
+    } else if (accepts(payloadOf(pieceDrag), { kind:'zone-trash' }) && overZone(e, trashEl)){
+      handled = true;                             // fresh piece, never in the tree: let it go (cancel)
+    } else if (accepts(payloadOf(pieceDrag), { kind:'zone-tray' }) && overZone(e, trayEl)){
       VERBS.stashTile(pieceDrag.node);            // proto-value x zone-tray -> stash
       handled = true;
     }
@@ -2403,9 +2398,43 @@
     const row = DROP_TABLE[payload];
     return row && target in row ? row[target] : null;
   }
-  // testing seam: lets the verb-map suite read the model without driving the DOM
+
+  /* --- Stage 2: the single acceptance gate ---------------------------------
+     accepts(payload, target) is the ONE predicate every drag system asks
+     before it highlights or resolves a drop. target is {kind:'slot',el} |
+     {kind:'gap'} | {kind:'zone-trash'} | {kind:'zone-tray'}. Slot acceptance is
+     type/cycle-checked (dropAllowed - the always-valid invariant); zone and gap
+     acceptance are payload-only rules in ZONE_ACCEPT. Highlight FOLLOWS accepts;
+     the verb that then fires comes from DROP_TABLE. A zone may accept a drop yet
+     fire no verb - a fresh palette piece over Trash is a no-op cancel (accepted
+     so the ghost is consumed, but there is nothing in the tree to remove). */
+  const ZONE_ACCEPT = {
+    'zone-trash': { 'piece-operand':true,  'piece-tile':true,  'piece-fixed':false,
+                    'proto-value':true,    'proto-op':true,    'stmt':true, 'stmt-proto':false },
+    'zone-tray':  { 'piece-operand':true,  'piece-tile':false, 'piece-fixed':false,
+                    'proto-value':true,    'proto-op':false,   'stmt':true, 'stmt-proto':false }
+  };
+  // map a live drag descriptor to its payload string (pieceDrag or a block drag)
+  function payloadOf(d){
+    if (!d) return null;
+    if (d.role === 'proto')   return d.proto.kind === 'op' ? 'proto-op' : 'proto-value';
+    if (d.role === 'operand') return 'piece-operand';
+    if (d.role === 'tile')    return 'piece-tile';
+    if (d.role === 'fixed')   return 'piece-fixed';
+    return 'stmt';                                   // a whole block / materialized statement
+  }
+  function accepts(payload, target){
+    if (!target) return false;
+    if (target.kind === 'slot') return dropAllowed(pieceDrag.el, target.el);  // type + no-cycle
+    if (target.kind === 'gap')  return payload === 'stmt' || payload === 'stmt-proto';
+    const row = ZONE_ACCEPT[target.kind];            // zone-trash / zone-tray
+    return !!(row && row[payload]);
+  }
+
+  // testing seam: lets the drop-model suite read the model without driving the DOM
   window.__drop = { VERBS:VERBS, DROP_TABLE:DROP_TABLE, verbFor:verbFor,
-                    PAYLOADS:DROP_PAYLOADS, TARGETS:DROP_TARGETS, VERBS_LIST:DROP_VERBS };
+                    PAYLOADS:DROP_PAYLOADS, TARGETS:DROP_TARGETS, VERBS_LIST:DROP_VERBS,
+                    accepts:accepts, payloadOf:payloadOf, ZONE_ACCEPT:ZONE_ACCEPT };
   /* =================== end unified drop model (Stage 1) =================== */
 
   // the label-deletion dialog: the one sanctioned crack in always-valid.

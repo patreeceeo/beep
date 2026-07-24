@@ -1,10 +1,13 @@
-/* Unified drop model — Stage 1 verification: the exhaustive (payload x target)
-   -> verb table. This suite doesn't drive the DOM; it reads the model directly
-   through the window.__drop testing seam and asserts the map is total, that
-   verbFor agrees with the table, that every non-null cell names a verb from the
-   closed set, and that all eight verbs are reachable + implemented. The
-   behavioural proof that handlers actually route through these verbs lives in
-   the phase-8 and phase-9 suites (both stay green). */
+/* Unified drop model — Stage 1 + 2 verification. This suite doesn't drive the
+   DOM; it reads the model directly through the window.__drop testing seam.
+   Stage 1 (T1-T7): the exhaustive (payload x target) -> verb table is total,
+   verbFor agrees with it, every non-null cell names a verb from the closed set,
+   and all eight verbs are reachable + implemented. Stage 2 (T8-T12): the single
+   accepts(payload, target) gate matches an independent zone-acceptance table,
+   gap acceptance is statements-only, the verb->accepts invariant holds, and
+   payloadOf maps drag descriptors correctly. The behavioural proof that the
+   handlers route through the verbs + gate lives in the phase-8 and phase-9
+   suites (both stay green). */
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 
@@ -96,6 +99,48 @@ const CLOSED_VERBS = ['swap','replace','wrap','insert','stash','discard','collap
   const V = drop.VERBS;
   ['swap','replace','wrap','collapse','stashTile','discardTile','insert','remove']
     .forEach(fn => ok(typeof V[fn] === 'function', 'VERBS.' + fn + ' is a function'));
+
+  console.log('T8: Stage 2 acceptance gate is exposed');
+  ok(typeof drop.accepts === 'function' && typeof drop.payloadOf === 'function', 'accepts + payloadOf present');
+  ok(drop.ZONE_ACCEPT && drop.ZONE_ACCEPT['zone-trash'] && drop.ZONE_ACCEPT['zone-tray'], 'ZONE_ACCEPT map present');
+
+  // independent second source of truth for zone acceptance (highlight/engage)
+  const ZONE_EXPECT = {
+    'zone-trash': { 'piece-operand':true, 'piece-tile':true,  'piece-fixed':false, 'proto-value':true, 'proto-op':true,  'stmt':true, 'stmt-proto':false },
+    'zone-tray':  { 'piece-operand':true, 'piece-tile':false, 'piece-fixed':false, 'proto-value':true, 'proto-op':false, 'stmt':true, 'stmt-proto':false }
+  };
+
+  console.log('T9: accepts() matches the zone expectation, exhaustively');
+  let zmis = 0;
+  ['zone-trash','zone-tray'].forEach(z => drop.PAYLOADS.forEach(pl => {
+    if (drop.accepts(pl, { kind:z }) !== ZONE_EXPECT[z][pl]) {
+      zmis++; console.log('    mismatch ' + pl + ' x ' + z + ': got ' + drop.accepts(pl, {kind:z}) + ' want ' + ZONE_EXPECT[z][pl]);
+    }
+  }));
+  ok(zmis === 0, 'all 14 payload x zone acceptances match');
+
+  console.log('T10: gap acceptance is statements-only; unknown targets refused');
+  ok(drop.accepts('stmt', { kind:'gap' }) && drop.accepts('stmt-proto', { kind:'gap' }), 'statements accept a gap');
+  ok(!drop.accepts('piece-operand', { kind:'gap' }) && !drop.accepts('proto-value', { kind:'gap' }), 'expression pieces do not accept a gap');
+  ok(drop.accepts('stmt', null) === false, 'a null target is refused');
+
+  console.log('T11: verb -> accepts invariant (a firing verb implies acceptance)');
+  let inv = true;
+  drop.PAYLOADS.forEach(pl => {
+    ['zone-trash','zone-tray'].forEach(z => {
+      if (drop.verbFor(pl, z) && !drop.accepts(pl, { kind:z })) { inv = false; console.log('    violated ' + pl + ' x ' + z); }
+    });
+    if (drop.verbFor(pl, 'gap') && !drop.accepts(pl, { kind:'gap' })) { inv = false; console.log('    violated ' + pl + ' x gap'); }
+  });
+  ok(inv, 'every non-null zone/gap verb has accepts()=true');
+
+  console.log('T12: payloadOf maps drag descriptors to payload strings');
+  ok(drop.payloadOf({ role:'proto', proto:{ kind:'value' } }) === 'proto-value', 'proto value');
+  ok(drop.payloadOf({ role:'proto', proto:{ kind:'op' } }) === 'proto-op', 'proto op');
+  ok(drop.payloadOf({ role:'operand' }) === 'piece-operand', 'operand');
+  ok(drop.payloadOf({ role:'tile' }) === 'piece-tile', 'tile');
+  ok(drop.payloadOf({ role:'fixed' }) === 'piece-fixed', 'fixed');
+  ok(drop.payloadOf({ block:{} }) === 'stmt', 'a block drag -> stmt');
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
