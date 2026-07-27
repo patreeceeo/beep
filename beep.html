@@ -104,6 +104,10 @@
     clip-path:polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
   }
   .pred .chip{ background:rgba(255,255,255,.7); color:var(--sun-deep); }
+  /* Phase 11b: a comparison hexagon holds two LIVE number slots. The gold shell
+     reads "this is a yes/no"; the tokens inside stay ordinary number material. */
+  .pred.cmp .pred-in{ padding:1px 13px; gap:2px; }
+  .pred.cmp .cmp-op{ color:var(--sun-deep); font-weight:700; padding:0 3px; }
   .group .op, .token .op{ font-family:'Fredoka',sans-serif; color:var(--ink-soft); padding:0 1px; }
   .op{ font-family:'Fredoka',sans-serif; color:var(--ink-soft); padding:0 2px; }
   /* ------- Phase 6: edit a leaf in place -------
@@ -753,9 +757,22 @@
   function bin(op, left, right){ return { type:'bin', op:op, left:left, right:right }; }
   function keyCond(key, arrowLabel){ return { type:'key', key:key, arrowLabel:arrowLabel }; }
   function touchCond(target, label){ return { type:'touch', target:target, label:label }; }
+  // Phase 11b: a COMPARISON is number x number -> boolean. It is its own node type
+  // rather than a `bin` with a boolean-out op, so `bin` stays purely
+  // number->number: nothing can collapse a comparison down to a bare number
+  // sitting in a boolean slot, and no wrap menu can offer `<` where a number is
+  // expected. Its operands are ordinary number slots, so every existing gesture
+  // (drag, swap, tap-to-edit, wrap in +) works inside it for free.
+  function cmp(op, left, right){ return { type:'cmp', op:op, left:left, right:right }; }
 
   function opGlyph(op){
     return op === '-' ? '\u2212' : op === '*' ? '\u00d7' : op === '/' ? '\u00f7' : '+';
+  }
+  // the stored comparison op is the JS-ish spelling ('<=' ), the glyph is the
+  // maths one a learner reads. A function, not a map, so it hoists above CMPS.
+  function cmpGlyph(op){
+    return op === '<=' ? '\u2264' : op === '>=' ? '\u2265'
+         : op === '==' ? '=' : op === '!=' ? '\u2260' : op;
   }
   function valStr(x){ return x < 0 ? '('+x+')' : String(x); }
 
@@ -772,6 +789,15 @@
                                   return l / r;
                         default:  return l + r;                 // '+'
                       } }
+      case 'cmp':   { const l = evalExpr(e.left), r = evalExpr(e.right);
+                      switch (e.op){
+                        case '>':  return l > r;
+                        case '<=': return l <= r;
+                        case '>=': return l >= r;
+                        case '==': return l === r;
+                        case '!=': return l !== r;
+                        default:   return l < r;               // '<'
+                      } }
       case 'key':   return isKeyPressed(e.key);
       case 'touch': return isTouching(e.target);
     }
@@ -784,6 +810,9 @@
       case 'var': return chip(e.name);
       case 'bin': { const s = htmlExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + htmlExpr(e.right, true);
                     return nested ? '(' + s + ')' : s; }
+      // a comparison binds looser than every arithmetic op, so its operands never
+      // need parentheses of their own
+      case 'cmp': return htmlExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + htmlExpr(e.right);
     }
     return '';
   }
@@ -794,14 +823,19 @@
       case 'var': return valStr(state[e.name]);
       case 'bin': { const s = bubbleExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + bubbleExpr(e.right, true);
                     return nested ? '(' + s + ')' : s; }
+      case 'cmp': return bubbleExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + bubbleExpr(e.right);
     }
     return '';
   }
   function condHtml(c){
+    if (c.type === 'cmp') return htmlExpr(c);
     return c.type === 'key' ? chip(c.arrowLabel) + ' isKeyPressed'
                             : chip('ball') + ' isTouching ' + chip(c.label);
   }
   function condNoBubble(c){
+    // a comparison reports its OPERANDS' live values ("120 < 100? no") - the same
+    // substitution bubbleExpr does for an assign, so a failed test is legible
+    if (c.type === 'cmp') return bubbleExpr(c) + '? no';
     return c.type === 'key' ? c.arrowLabel + ' pressed? no'
                             : 'touching ' + c.label + '? no';
   }
@@ -829,9 +863,14 @@
     switch(node.type){
       case 'label':  return { bubble:'⚑ '+node.name, pause:400 };
       case 'goto':   return { bubble:'wheee → ⚑ '+node.target+'!', jump:node.target };
-      case 'ifjump':
-        if (evalExpr(node.cond)) return { bubble:'yes → ⚑ '+node.target+'!', jump:node.target };
+      case 'ifjump': {
+        const yes = evalExpr(node.cond);
+        // a /0 hiding inside a comparison is the same ERROR it is in an assign:
+        // refuse to decide, and let the caller halt Beep on this row
+        if (divByZero) return { divZero:true };
+        if (yes) return { bubble:'yes → ⚑ '+node.target+'!', jump:node.target };
         return { bubble: condNoBubble(node.cond) };
+      }
       case 'assign': return execAssign(node);
       case 'command':return execCommand(node);
     }
@@ -962,13 +1001,16 @@
     if (n.type === 'bin')   return { type:'bin', op:n.op, left:cloneNode(n.left), right:cloneNode(n.right) };
     if (n.type === 'var')   return { type:'var', name:n.name };
     if (n.type === 'num')   return { type:'num', value:n.value };
+    if (n.type === 'cmp')   return { type:'cmp', op:n.op, left:cloneNode(n.left), right:cloneNode(n.right) };
     if (n.type === 'key')   return { type:'key', key:n.key, arrowLabel:n.arrowLabel };
     if (n.type === 'touch') return { type:'touch', target:n.target, label:n.label };
     return { type:n.type };
   }
   // each expression/condition node has a value TYPE; slots only accept a matching one
   function typeOf(node){
-    return (node.type === 'key' || node.type === 'touch') ? 'boolean' : 'number';
+    // 'cmp' is the number->boolean bridge: its OPERANDS are numbers but the node
+    // itself reads as a boolean, which is exactly what lets it fill a condition.
+    return (node.type === 'key' || node.type === 'touch' || node.type === 'cmp') ? 'boolean' : 'number';
   }
   program.forEach(function(b){
     if (b.type === 'assign') b._initialExpr = cloneNode(b.expr);
@@ -1222,10 +1264,11 @@
   // nemesis to warn (he points, he doesn't zap). The divisor is read with the
   // same live values bubbleExpr shows, so this is the "current instance".
   function collectDivZero(node, out){
-    if (!node || node.type !== 'bin') return;
+    // cmp carries left/right too, so a /0 hiding inside a comparison is still found
+    if (!node || (node.type !== 'bin' && node.type !== 'cmp')) return;
     collectDivZero(node.left, out);
     collectDivZero(node.right, out);
-    if (node.op === '/'){
+    if (node.type === 'bin' && node.op === '/'){
       const saved = divByZero; divByZero = false;
       const r = evalExpr(node.right);
       if (divByZero || r === 0) out.add(node);
@@ -1243,7 +1286,7 @@
   }
   function subtreeHas(root, node){
     if (root === node) return true;
-    if (!root || root.type !== 'bin') return false;
+    if (!root || (root.type !== 'bin' && root.type !== 'cmp')) return false;
     return subtreeHas(root.left, node) || subtreeHas(root.right, node);
   }
   function stmtOfNode(node){
@@ -1596,7 +1639,7 @@
     const s = slotReg[id];
     if (Array.isArray(s.parent)) return typeOf(s.parent[s.field]);
     if (s.parent.type === 'ifjump' && s.field === 'cond') return 'boolean';
-    return 'number';   // assign.expr and bin operands
+    return 'number';   // assign.expr, bin operands, and cmp operands
   }
 
   function justCls(n){ if (n._justSet){ n._justSet = false; return ' just-set'; } return ''; }
@@ -1612,6 +1655,18 @@
                   + nodeHtml(node.right, node, 'right', false);
       if (isRoot) return inner;                    // root RHS: parts move, whole doesn't
       return '<span class="group'+justCls(node)+'" data-sl="'+selfId+'">'+inner+'</span>';
+    }
+    if (node.type === 'cmp'){
+      // the hexagon says "this is a yes/no"; inside it sit two REAL number slots
+      // and a tappable operator - the same selfId idiom as bin, where the operator
+      // glyph is the handle for the node it belongs to.
+      const selfId = reg(parent, field);
+      return '<span class="pred cmp'+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
+           +   '<span class="pred-in">'
+           +     nodeHtml(node.left, node, 'left', false)
+           +     '<span class="op cmp-op" data-op="'+selfId+'">' + cmpGlyph(node.op) + '</span>'
+           +     nodeHtml(node.right, node, 'right', false)
+           +   '</span></span>';
     }
     if (node.type === 'key' || node.type === 'touch'){
       // a boolean predicate: hexagon piece (outer = border ring, inner = fill + text)
@@ -1947,6 +2002,7 @@
     const node = slotNode(opEl.dataset.op);         // capture before closeLeafPop can re-render
     closeLeafPop();
     if (node && node.type === 'bin') openBinPop(liveAnchor(node, opEl), node);
+    else if (node && node.type === 'cmp') openCmpPop(liveAnchor(node, opEl), node);
   }
 
   // dispatch a leaf tap to the right chooser (a bin group has no content of its
@@ -1965,6 +2021,7 @@
     if (node.type === 'num') return openNumPop(anchor, node);
     if (node.type === 'var') return openVarPop(anchor, node);
     if (node.type === 'key' || node.type === 'touch') return openPredPop(anchor, node);
+    if (node.type === 'cmp') return openCmpPop(anchor, node);
   }
 
   /* ---- the chooser popover (one at a time, floated over everything) ---- */
@@ -2038,9 +2095,20 @@
   // toggle partners for the operator tap-menu's "make it ..." flip (same type, so
   // the always-valid invariant holds); wrap seeds identity (0 for +/-, 1 for x/div)
   const FLIP = { '+':'-', '-':'+', '*':'/', '/':'*' };
+  /* Phase 11b - the COMPARISON registry (number x number -> boolean). Kept apart
+     from OPS deliberately: comparisons are not wrap material. opsFor's two-sided
+     filter would only ever offer `<` to a number whose slot also expects a
+     boolean, and no such position exists. Comparisons reach the tree the other
+     way round - as palette VALUE prototypes dropped INTO a boolean slot, which is
+     the "build into a boolean slot" flow this phase needed. CMP_FLIP pairs each
+     test with its logical negation, so the operator tap can offer "the opposite"
+     the way + <-> - offers "make it minus". Adding a test = one entry. */
+  const CMPS = [{ op:'<' }, { op:'>' }, { op:'<=' }, { op:'>=' }, { op:'==' }, { op:'!=' }];
+  const CMP_FLIP = { '<':'>=', '>=':'<', '>':'<=', '<=':'>', '==':'!=', '!=':'==' };
   // test-only seam: unit-test evaluation + op glyphs without driving the DOM
   function divCheck(e){ divByZero = false; const value = evalExpr(e); return { value:value, divByZero:divByZero }; }
   window.__lang = { evalExpr:evalExpr, opGlyph:opGlyph, OPS:OPS, FLIP:FLIP,
+                    cmpGlyph:cmpGlyph, CMPS:CMPS, CMP_FLIP:CMP_FLIP, cmp:cmp,
                     bin:bin, num:num, v:v,
                     divCheck:divCheck, execStmt:execStmt, stepInstant:stepInstant, state:state,
                     dividesByZero:function(node){ const set=new Set(); collectDivZero(node, set); return set.size > 0; } };
@@ -2201,6 +2269,29 @@
     appendZoneSection(pop, node);
   }
 
+  // comparison: pick the test. Content-only, exactly like the other leaf choosers -
+  // the tree's shape and both operand types are untouched, so the always-valid
+  // invariant holds by construction. "The opposite" is offered first because
+  // negating a condition is the move a learner reaches for; the grid below is
+  // direct selection.
+  function openCmpPop(anchorEl, node){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'compare \u00b7 yes or no?');
+    const grid = popGrid(pop);
+    optButton(grid, 'the opposite: ' + cmpGlyph(CMP_FLIP[node.op]), false, function(){
+      node.op = CMP_FLIP[node.op]; markEdited(node); cancelLeafPop();
+    });
+    popTitle(pop, 'or pick the test');
+    const grid2 = popGrid(pop);
+    CMPS.forEach(function(o){
+      optButton(grid2, cmpGlyph(o.op), o.op === node.op, function(){
+        node.op = o.op; markEdited(node); cancelLeafPop();
+      });
+    });
+    appendWrapSection(pop, node);   // boolean out; no boolean OPS today, so silent
+    appendZoneSection(pop, node);
+  }
+
   /* ---------- Phase 8: the palette - an infinite typed source ----------
      The spare tiles are a finite workbench; the palette is a shelf of PROTOTYPES.
      A drag never takes the prototype - a ghost lifts off and a FRESH node is
@@ -2312,7 +2403,8 @@
       t.className = 'token ' + cls; t.textContent = text; return t;
     }
     function predEl(node){
-      const pr = document.createElement('span'); pr.className = 'pred';
+      const pr = document.createElement('span');
+      pr.className = 'pred' + (node.type === 'cmp' ? ' cmp' : '');
       pr.innerHTML = '<span class="pred-in">' + condHtml(node) + '</span>';
       return pr;
     }
@@ -2329,6 +2421,18 @@
     TOUCH_OPTS.forEach(function(o){
       add(g, { kind:'value', make:function(){ return touchCond(o.target, o.label); } },
           predEl(touchCond(o.target, o.label)));
+    });
+    /* Phase 11b: comparisons ship as BOOLEAN value prototypes. Because
+       typeOf(cmp) is 'boolean', dropAllowed offers them on condition slots and
+       nowhere else, and the drop fires the ordinary `replace` verb - the sensor
+       they displace retreats to the spares, material never lost. That is the
+       whole "build into a boolean slot" flow: no new payload, no new target, no
+       new row in DROP_TABLE. Both operands arrive as 0 - a comparison has no
+       identity to seed, so the honest default is a visibly blank test to tune. */
+    g = group('comparisons');
+    CMPS.forEach(function(o){
+      add(g, { kind:'value', make:function(){ return cmp(o.op, num(0), num(0)); } },
+          predEl(cmp(o.op, num(0), num(0))));
     });
     g = group('operations');
     OPS.forEach(function(o){

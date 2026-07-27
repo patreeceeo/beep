@@ -14,7 +14,7 @@ resume without re-deriving context.
 ## Files in this folder
 Persisted (source of truth): `beep.html`, this file,
 `test-phase8.js`, `test-phase9.js`, `test-drop.js`, `test-grammar.js`,
-`test-diverror.js`, `package.json` (+ lockfile).
+`test-diverror.js`, `test-compare.js`, `package.json` (+ lockfile).
 Generated - recreate, don't commit: `node_modules` (`npm install`),
 `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
 (one-shot edit scripts, already applied).
@@ -39,12 +39,14 @@ substitute behind. Corollaries the whole codebase leans on:
 - Statements: `label`, `goto`, `ifjump`, `assign`, `command`.
 - Phase-8 palette: `PALETTE` entries `{kind:'value', make}` | `{kind:'op', op}` |
   `{kind:'stmt', make}` (Phase 9).
-- jsdom suites alongside the html: `test-phase8.js` (27 asserts) and
+- jsdom suites alongside the html: `test-phase8.js` (28 asserts) and
   `test-phase9.js` (63 asserts, incl. panel fold/reorder, help popovers, menu parity, nemesis, Phase-10 chip choosers). Both must stay green; phase-8's T1/T2
-  count `.proto:not(.stmt-tile)`, and post-Reset tests must RE-QUERY block
-  elements (Reset rebuilds them all since Phase 9).
-- Expressions: `num`, `var`, `bin{op,left,right}`. Conditions: `key`, `touch`.
-- Constructors: `v`, `num`, `bin`, `keyCond`, `touchCond`; builders `label/goto_/…`.
+  count `.proto:not(.stmt-tile)` (**27** today: 1 num + 8 vars + 8 sensors +
+  6 comparisons + 4 ops — bump them when the shelf grows), and post-Reset tests
+  must RE-QUERY block elements (Reset rebuilds them all since Phase 9).
+- Expressions: `num`, `var`, `bin{op,left,right}`. Conditions: `key`, `touch`,
+  `cmp{op,left,right}` (Phase 11b — boolean-typed, but its OPERANDS are numbers).
+- Constructors: `v`, `num`, `bin`, `keyCond`, `touchCond`, `cmp`; builders `label/goto_/…`.
 - Eval/render: `evalExpr`, `execStmt`, `renderStmt` (compact), `nodeHtml` (editable/
   draggable), `htmlExpr` (compact expr), `bubbleExpr` (values substituted).
 - **Slot registry:** `slotReg` maps id → `{parent, field}`; `reg` / `slotNode` /
@@ -163,6 +165,10 @@ substitute behind. Corollaries the whole codebase leans on:
   snap home. Drag a spare tile → Trash removes it.
 - Tap operand (num/var/pred) → chooser (edit value) + "wrap in" + "take out" sections.
 - Tap operator → bin menu: flip sign + "wrap in" (wraps whole subtree).
+- Tap a comparison's operator (or its hexagon) → pick the test / "the opposite".
+  Drag a comparison hexagon from the shelf onto a condition → it REPLACES the
+  sensor there (which retreats to the spares). Its two operands are normal number
+  slots — drop a variable on one, wrap it in +, tap to retype it.
 - Tap a chip → repoint the reference: flagref = retarget, flag = rename,
   assign LHS = pick variable, despawn sprite = pick sprite.
 - Drag palette prototype → ghost copy: drop on compatible slot (replace; old piece
@@ -173,6 +179,15 @@ substitute behind. Corollaries the whole codebase leans on:
   Activation counts TOTAL movement (x+y) and the ghost follows both axes, so a
   sideways pull toward the right-panel zones works — it was vertical-only before.
 - Grip tap → statement menu: duplicate / to spare tiles / delete.
+
+## Comparison registry (Phase 11b)
+`CMPS = [{op}]` for `<`, `>`, `<=`, `>=`, `==`, `!=`; `cmpGlyph` maps the stored
+spelling to the maths glyph (`≤ ≥ = ≠`); `CMP_FLIP` pairs each test with its
+logical NEGATION (`<`↔`>=`, `>`↔`<=`, `=`↔`≠`), which is what the operator
+tap-menu's "the opposite" button applies. Deliberately SEPARATE from `OPS`:
+comparisons are not wrap material, because `opsFor`'s two-sided filter would only
+ever offer `<` to a number whose slot also expects a boolean, and no such position
+exists. Adding a test = one `CMPS` entry + one `CMP_FLIP` pair.
 
 ## Operation registry (built for scale)
 `OPS = [{op, identity, in, out}]` (today: `+`,`−` (id 0) and `×`,`÷` (id 1), all
@@ -276,7 +291,7 @@ Staged migration (protect the 90 green asserts - NO big-bang):
   statements genuinely differ in hit-testing; `panelDrag` is chrome, not
   language material - forcing it in buys coupling, not clarity. Only do this
   if Phase 11 demands it; verbs + gate are where the value is.
-- Verification per stage: all three suites green (`node test-phase8.js`,
+- Verification per stage: all suites green (`node test-phase8.js`,
   `node test-phase9.js`, `node test-drop.js`); the last is the exhaustive
   payload x target verb-map + acceptance-gate table test (33 asserts).
 
@@ -314,7 +329,38 @@ Staged migration (protect the 90 green asserts - NO big-bang):
     lost-jump `beepConfused`); `stepInstant`/`finishPhase`/`fastForward` bail
     before `nextPc`, so pc parks on the broken row. `test-diverror.js` (15
     asserts) proves both surfaces end-to-end (real gestures + `stepInstant`).
-  - **Still open:** comparisons (number→boolean — needs a "build INTO a boolean
-    slot" flow, NOT in-place wrap, since conditions are key/touch predicates, not
-    expressions) and and/or/not (boolean→boolean, plus unary `not` which breaks
-    the binary-`bin` assumption). Both are the Phase-11 design work.
+  - ~~comparisons~~ **DONE (Phase 11b, this session): the "build INTO a boolean
+    slot" flow, solved with machinery that already existed.** A comparison is its
+    OWN node type `cmp{op,left,right}` — not a `bin` with a boolean-out op — so
+    `bin` stays purely number→number and nothing can collapse a comparison down to
+    a bare number sitting in a boolean slot. `typeOf(cmp)='boolean'` while
+    `expectedType` of its `left`/`right` is `'number'`: that one asymmetry is the
+    whole number→boolean bridge.
+    - **How it reaches the tree:** as a palette **value prototype** (6 hexagons in
+      a new `comparisons` shelf group, both operands seeded `0` — a comparison has
+      no identity, so the honest default is a visibly blank test). Because it
+      types as boolean, `dropAllowed` offers it on condition slots and NOWHERE
+      else, and the drop fires the ordinary `replace` verb — the displaced sensor
+      retreats to the spares. **No new payload, no new target, no new DROP_TABLE
+      row** — Stage 1+2 of the unified drop model paid for themselves here exactly
+      as predicted.
+    - **Inside the hexagon are REAL slots:** its operands are ordinary number
+      material, so drag/swap, tap-to-edit, and "wrap in +" all work in there for
+      free. They are required slots, so `dragRole` already returns `'fixed'` and
+      the zones already refuse them — collapse is impossible with zero new code.
+    - **Operator = the handle** (same `selfId` idiom as `bin`): tap it (or the
+      hexagon) for `openCmpPop` — "the opposite: ≥" first, then the six tests.
+      Content-only edit, so the invariant holds by construction.
+    - **Div-by-zero follows it in:** `collectDivZero`/`subtreeHas` now walk `cmp`,
+      and `execStmt`'s ifjump returns `{divZero:true}` rather than deciding on a
+      poisoned comparison — Beep halts on the row exactly as he does for an assign.
+    - `test-compare.js` (80 asserts) covers evaluation, the flip-is-negation
+      property, the shelf, a live drop into a condition, operand editing, the
+      operator chooser, the REFUSAL of a comparison in a number slot, runtime, and
+      Reset. Mutation-tested against 4 seeded bugs.
+  - **Still open:** and/or/not (boolean→boolean, plus unary `not`, which breaks
+    the binary-`bin` assumption — `cmp` sets the precedent that a new shape gets a
+    new node type rather than a flag on an old one). A `not` would also want a
+    boolean→boolean entry in a `BOOL_OPS` registry, at which point
+    `appendWrapSection` on a `cmp` starts rendering (it is already wired and
+    silently empty today).
