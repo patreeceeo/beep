@@ -139,6 +139,24 @@ substitute behind. Corollaries the whole codebase leans on:
      `.hint`) is MOVED at init into a `.help-pop` behind a ?-disc in the
      header (left of the 36px chevron). Toggle on disc tap; outside tap /
      scroll / resize closes; one open at a time (`toggleHelp`/`closeHelp`).
+   - **Stage + transport are ONE panel (this session).** The old "Run it"
+     panel is gone: `.controls` and its `.hint` are direct children of the
+     Stage panel now, sitting under the stage like a video player's transport
+     bar — the buttons drive the picture, so they live with it. **Four side
+     panels** (Stage / backpack / new pieces / spare tiles); still 3 help discs
+     (the hint rides along and becomes Stage's). A saved `beepSidePanels`
+     order containing the dead `run-it` key needs no migration — `initPanels`
+     only honours keys that still resolve to a panel. `test-phase9` T12's
+     panel-count assert was 5, now 4.
+   - **Video-player icons (this session):** Step / Play / Reset carry inline
+     SVG transport glyphs (`▶|`, `▶`, `|◀`) + a text label, so the row reads as
+     playback before a word is read. `faceBtn(btn, ico, label)` swaps the play
+     button's whole face (icon + label + `aria-label`) between `ICO_PLAY` and
+     `ICO_PAUSE`; the static markup ships the same play glyph so the two can't
+     drift. **Watch mode was DROPPED** (button, `watchLoop`, and the `'watch'`
+     branch of `mode` all deleted) — `mode` is `idle | play`. Step already
+     covers "show me one block at a time"; if the auto-advance is ever wanted
+     back it is ~6 lines driving `stepAnimated` on a timer.
    - **Menu parity** (`appendZoneSection` in every chooser): operands get
      "to spare tiles" / "trash" (through the collapse dialog), tray tiles get
      "trash this tile", required slots get nothing. Statements already had

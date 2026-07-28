@@ -173,7 +173,7 @@ function pev(type, x, y) {
   console.log('T12: side panels fold and reorder');
   const side = document.querySelector('.side');
   const panels = [...side.querySelectorAll(':scope > .panel')];
-  ok(panels.length >= 5 && panels.every(pn => pn.querySelector('.panel-head')), 'all panels grew heads');
+  ok(panels.length >= 4 && panels.every(pn => pn.querySelector('.panel-head')), 'all panels grew heads');
   const sparePanel = panels.find(pn => /Spare tiles/i.test(pn.querySelector('h2').textContent));
   const head = sparePanel.querySelector('.panel-head');
   head.dispatchEvent(pev('pointerdown', 50, 400));
@@ -196,7 +196,7 @@ function pev(type, x, y) {
 
   console.log('T12b: section notes live in help popovers');
   const helps = side.querySelectorAll('.panel-help');
-  ok(helps.length === 3, '3 help discs (new pieces, spare tiles, run it), got ' + helps.length);
+  ok(helps.length === 3, '3 help discs (stage, new pieces, spare tiles), got ' + helps.length);
   ok(side.querySelector('.panel > .tray-note, .panel > .hint') === null, 'notes moved out of the panels');
   const disc = helps[0];
   disc.dispatchEvent(pev('pointerdown', 500, 20));

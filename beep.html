@@ -527,13 +527,17 @@
   .tile.flash{border-color:var(--purple); background:var(--purple-soft)}
 
   /* ------- controls ------- */
-  .controls{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  .controls{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px}
   .btn{
     font-family:'Fredoka',sans-serif; font-weight:500; font-size:15px;
     border:2px solid var(--ink); border-radius:12px; background:#fff; color:var(--ink);
     padding:7px 15px; cursor:pointer; box-shadow:0 3px 0 var(--ink);
     transition:transform .08s, box-shadow .08s;
+    display:inline-flex; align-items:center; gap:7px;
   }
+  /* transport glyphs: the same shapes a video player uses, so the row reads as
+     "playback" before a single word is read. */
+  .btn .ico{ width:15px; height:15px; flex:none; display:block; }
   .btn:active{transform:translateY(3px); box-shadow:0 0 0 var(--ink)}
   .btn.primary{background:var(--sun)}
   .btn.teal{background:var(--teal); color:#fff; border-color:var(--teal-deep); box-shadow:0 3px 0 var(--teal-deep)}
@@ -603,6 +607,8 @@
 
     <!-- ============ STAGE + PACK + CONTROLS ============ -->
     <div class="side">
+      <!-- Stage + transport in ONE panel: the controls belong to the picture they
+           drive, like a video player's scrubber bar. -->
       <section class="panel">
         <h2>Stage</h2>
         <div class="stage" id="stage">
@@ -613,6 +619,12 @@
           <div id="paddle"></div>
           <span class="keys-note">← → move the paddle</span>
         </div>
+        <div class="controls">
+          <button class="btn primary" id="btnStep" aria-label="Step one block"><svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4.8 15.5 12 5 19.2z"/><rect x="17" y="4.8" width="2.6" height="14.4" rx="1.1"/></svg><span>Step</span></button>
+          <button class="btn" id="btnPlay" aria-label="Play fast"><svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5 20 12 6 19.5z"/></svg><span>Play fast</span></button>
+          <button class="btn" id="btnReset" aria-label="Reset"><svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.4" y="4.8" width="2.6" height="14.4" rx="1.1"/><path d="M19 4.8 8.5 12 19 19.2z"/></svg><span>Reset</span></button>
+        </div>
+        <p class="hint"><b>Play fast</b> to play with ← →. Then <b>Step</b> through it one block at a time to see how it works: yellow blocks ask a question, and if the answer is yes, Beep <b>jumps along the wire</b> to a flag. Wires on the <b>right</b> jump down to little jobs; wires on the <b>left</b> jump back up. <b>Drag any block or flag</b> to rearrange the program and see what breaks!</p>
       </section>
 
       <section class="panel">
@@ -639,17 +651,6 @@
           </div>
         </div>
         <p class="tray-note">Tap a <b>purple = statement</b> to open it. <b>Drag</b> a piece to move it &mdash; every drop <b>swaps</b>, so no slot is ever empty. <b>Tap</b> a piece for its menu: change its value, or <b>wrap</b> it in a <b>+ / &minus;</b>. Tap the <b>sign</b> to flip it or wrap the whole group. Drag an operand to <b>Trash</b> (or the spare tiles) to <b>collapse</b> it back. Whole <b>statements</b> ride the same rules: drag a block here to <b>keep it</b>, to Trash to <b>delete</b> it, or <b>tap its grip</b> for duplicate&nbsp;/&nbsp;stash&nbsp;/&nbsp;delete. Deleting a flag that wires point at leaves those jumps <b>pointing at nothing</b> &mdash; Beep will stop, confused, if he tries one.</p>
-      </section>
-
-      <section class="panel">
-        <h2>Run it</h2>
-        <div class="controls">
-          <button class="btn primary" id="btnStep">➜ Step</button>
-          <button class="btn teal" id="btnWatch">👀 Watch</button>
-          <button class="btn" id="btnPlay">⚡ Play fast</button>
-          <button class="btn" id="btnReset">↺ Reset</button>
-        </div>
-        <p class="hint"><b>Play fast</b> to play with ← →. Then <b>Step</b> or <b>Watch</b> to see how it works: yellow blocks ask a question, and if the answer is yes, Beep <b>jumps along the wire</b> to a flag. Wires on the <b>right</b> jump down to little jobs; wires on the <b>left</b> jump back up. <b>Drag any block or flag</b> to rearrange the program and see what breaks!</p>
       </section>
     </div>
   </div>
@@ -1262,7 +1263,6 @@
   const bubble  = document.getElementById('bubble');
   const wires   = document.getElementById('wires');
   const btnStep = document.getElementById('btnStep');
-  const btnWatch= document.getElementById('btnWatch');
   const btnPlay = document.getElementById('btnPlay');
   const btnReset= document.getElementById('btnReset');
 
@@ -1422,7 +1422,7 @@
   /* ---------- interpreter ---------- */
   let pc = 0;               // which program row Beep will do next
   let busy = false;         // an animated step is in flight
-  let mode = 'idle';        // idle | watch | play
+  let mode = 'idle';        // idle | play
   let timer = null;
   let divByZero = false;    // set by evalExpr on a /0; read by exec + the authoring scan
   let knownDivZero = new Set();   // '/' nodes already dividing by zero (to spot NEW ones)
@@ -1629,19 +1629,21 @@
   }
 
   /* ---------- modes ---------- */
+  /* Transport icons live here as strings because the play button swaps its own
+     face; the markup above ships the same play glyph so the two never drift. */
+  const ICO_PLAY  = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4.5 20 12 6 19.5z"/></svg>';
+  const ICO_PAUSE = '<svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4.5" width="4.4" height="15" rx="1.6"/><rect x="13.6" y="4.5" width="4.4" height="15" rx="1.6"/></svg>';
+  function faceBtn(btn, ico, label){
+    btn.innerHTML = ico + '<span>' + label + '</span>';
+    btn.setAttribute('aria-label', label);
+  }
+
   function stopAll(){
     mode = 'idle';
     clearInterval(timer); timer = null;
     robot.classList.remove('fast');
-    btnWatch.classList.remove('on'); btnWatch.textContent = '👀 Watch';
-    btnPlay.classList.remove('on');  btnPlay.textContent  = '⚡ Play fast';
-  }
-
-  function watchLoop(){
-    if (mode !== 'watch') return;
-    stepAnimated(function(){
-      setTimeout(watchLoop, 120);
-    });
+    btnPlay.classList.remove('on');
+    faceBtn(btnPlay, ICO_PLAY, 'Play fast');
   }
 
   btnStep.addEventListener('click', function(){
@@ -1650,23 +1652,13 @@
     stepAnimated();
   });
 
-  btnWatch.addEventListener('click', function(){
-    if (mode === 'watch'){ stopAll(); return; }
-    stopAll();
-    if (busy) fastForward();
-    mode = 'watch';
-    btnWatch.classList.add('on');
-    btnWatch.textContent = '⏸ Pause';
-    watchLoop();
-  });
-
   btnPlay.addEventListener('click', function(){
     if (mode === 'play'){ stopAll(); robot.classList.add('home'); return; }
     stopAll();
     if (busy) fastForward();
     mode = 'play';
     btnPlay.classList.add('on');
-    btnPlay.textContent = '⏸ Pause';
+    faceBtn(btnPlay, ICO_PAUSE, 'Pause');
     hideBubble();
     robot.classList.remove('walking');
     robot.classList.remove('home');
