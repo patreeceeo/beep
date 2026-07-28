@@ -430,11 +430,128 @@ Staged migration (protect the 90 green asserts - NO big-bang):
   `node test-phase9.js`, `node test-drop.js`); the last is the exhaustive
   payload x target verb-map + acceptance-gate table test (33 asserts).
 
+## Phase 13 — SPEC ONLY, not yet built: visits (calls), the bookmark stack, the parcel belt
+Decisions locked with Patrick (2026-07-28): dequeue is a STATEMENT (not an
+expression leaf), every empty/broken case is a CONFUSED HALT, vocabulary is the
+app's metaphor voice, and this section is the spec to build from.
+
+**Vocabulary map** (doc-internal CS names in parens): `visit ⚑` (call),
+`return` (kept as-is — it is also the plain-English word for going back),
+bookmark stack (call stack), `pack` / `unpack into ⟨var⟩` (enqueue/dequeue),
+the conveyor belt (FIFO value queue). One belt serves BOTH directions:
+arguments are packed before the visit, results packed before the return —
+a "call" is a protocol the learner assembles (pack · visit · unpack), not an
+atomic thing the language does for them.
+(The backpack also owns `pack` in code identifiers — a non-issue per
+Patrick; the backpack may be renamed in the UI anyway. The node TYPE string
+`'pack'` is safe regardless.)
+
+### The four statements (all shelf material, Phase-9 machinery unchanged)
+- **`visit{target}`** — jumps like `goto` AND drops a bookmark for the way
+  back. Same flagref chip, same `bindJumpTarget` on drop, same retarget
+  chooser, same frayed-dangle rules. Shelf proto ships `target:'?'`.
+- **`return{}`** (node type `'return'` — a string, so no keyword clash) —
+  pops the NEWEST bookmark; pc goes to the row after the call.
+  **Deliberately chipless and wireless:** its destination is DATA (top
+  of stack), not syntax — that absence is the lesson, so do not draw a static
+  wire for it. (A transient runtime arc when it fires is fine polish.)
+- **`pack{expr}`** — one ordinary number slot (full expression material:
+  swap/wrap/tap-edit free via slotReg), evaluates, parcel joins the BACK of
+  the belt. /0 inside refuses the pack exactly as `execAssign` refuses the
+  write (`{divZero}`; `collectDivZero`/`subtreeHas` must walk `pack.expr`).
+- **`unpack{target}`** — pops the FRONT parcel into a variable; LHS chip via the
+  existing `tgt-chip` chooser idiom. Dequeue happens exactly ONCE, in
+  `execStmt` — this is WHY it is a statement: `bubbleExpr` evaluates
+  expressions a second time for the thought bubble, so an impure
+  "next parcel" leaf would dequeue twice. Expressions stay pure. (Rejected
+  alternative recorded: an expression leaf + per-statement memo layer.)
+
+### Control flow (technical strategy)
+- **`nextPc` stays the single source of truth.** Extend the result contract:
+  `{visit:name}` → resolve label (dangle → `'lost'` as today), push a
+  bookmark, set pc; `{ret:true}` → pop, resolve, set pc. execStmt only
+  REPORTS; nextPc DECIDES — same split as today.
+- **A bookmark stores the call statement NODE, not a row index.** The program
+  is editable mid-run (reorder/delete) and jumps already re-resolve names on
+  every hop; a stored index would silently rot. On hop back:
+  `program.indexOf(node)`; found → pc = that+1 (mod length); gone → the
+  bookmark DANGLES and Beep halts confused ("my bookmark is gone!"). This
+  extends the Phase-9 amendment (structure always valid, REFERENCES may
+  dangle) to runtime references — one rule, third instance.
+- **All failure surfaces are the confused halt** (pc parks on the row, every
+  run mode stops, bug stays steppable — mirrors `beepConfused` /
+  `beepConfusedDivide`, probably one parameterized helper by now):
+  return on empty stack · unpack from empty belt · return to a deleted call
+  row · visit a lost flag (existing path) · **stack overflow: cap ~12**, a
+  13th visit halts him — recursion works day one, so stack overflow becomes a
+  watchable, teachable failure instead of a hang.
+- **State:** `callStack=[]`, `belt=[]` (numbers). Reset empties both and
+  clears their DOM. `pack.expr` needs `_initialExpr`-style snapshot coverage
+  (the Reset = deep-clone-snapshot invariant); `programSeed`/`cloneStmt`
+  already deep-clone statements generically — verify `expr` is walked.
+- **Registries:** `KIND_FOR` +2 kinds (visit can likely reuse `jump`; `return`
+  wants its own so wires skip it), `mk()` branches, `renderStmt`/`nodeHtml`
+  cases, 4 shelf protos (phase-8 T1/T2 UNaffected — they count
+  `.proto:not(.stmt-tile)`; any stmt-proto count asserts in phase-9 bump
+  7→11). `DROP_TABLE`/`accepts` untouched: stmt payloads already exist —
+  Stage 1+2 pay off again.
+- **Wires:** visit wires render like jump wires but visually distinct
+  (dashed). `drawWires` already early-outs on lost refs.
+
+### Visuals
+- **Bookmark tokens in the program gutter:** one token pinned at each
+  bookmark's RETURN row (call row + 1), stacking with a count when calls
+  nest/recurse. Redraw whenever the stack or program changes (piggyback on
+  `drawWires`' schedule). The pile IS the call stack, live.
+- **The conveyor belt: its own side panel** (between backpack and new
+  pieces). Parcels as small value tiles, front-of-queue marked (arrow),
+  pack/unpack animate a slide. The panel system (fold/reorder/persist/help
+  disc) picks it up automatically via `setupPanel`; NOTE phase-9 T12b asserts
+  **3** help discs — a `.tray-note` in this panel makes it 4; bump the assert.
+
+### Pedagogy (why each piece is shaped this way)
+- **Reuse is the motivator:** two wall rows visiting ONE `bounce` routine is
+  the first program where a flag is a TOOL, not a place. (Seed program stays
+  untouched this phase; a demo migration is a separate decision.)
+- **Return address as data:** goto's arrow is drawn; return's isn't,
+  because it CAN'T be — where you go back to depends on where you came from.
+  The bookmark pile makes that data visible and countable.
+- **Calling conventions, honestly:** the belt forces both sides to AGREE on
+  count and order — in BOTH directions, since arguments and results ride the
+  same belt. Leftover parcels sit visibly (a bug you can see) and will
+  corrupt the NEXT call's arguments; unpacking too many halts confused (a bug
+  you can step into); a routine that packs a result before unpacking all its
+  arguments interleaves them — visible, not prevented, by design. FIFO chosen
+  over a second stack: parcels come off in the order packed, which is the
+  intuition kids already have about conveyor belts. (Recorded fallback if one
+  belt proves too cruel in practice: two belts, inbox/outbox.)
+- **One global belt, deliberately** (rejected: per-call frames). Frames are
+  invisible machinery; a single shared belt makes the failure modes the
+  curriculum.
+
+### Deferred, recorded
+`ifvisit` (conditional call — only if it earns its place; `ifjump` over a
+visiting flag covers it meanwhile) · seed-program subroutine migration ·
+typed parcels (sprites/booleans on the belt — `unpack into` is number-only at
+first; the belt tiles would just inherit the type silhouettes) · expression
+'next parcel' leaf (rejected above).
+
+### Test plan (`test-call.js`)
+Semantics via `stepInstant` (visit/return round trip, nesting, recursion to
+the cap, FIFO order, pack-args → visit → unpack-results round trip incl. the
+leftover-parcel and interleave cases); gestures (shelf drop of each proto,
+fresh visit binds to nearest flag, retarget chooser on a visit, unpack's LHS
+chooser); every confused-halt case incl. deleting the call row mid-visit;
+Reset clears stack + belt; /0 inside a pack. Mutation-test the
+usual way (seed ~5 bugs: LIFO/FIFO swap, off-by-one return row, missing
+overflow cap, double dequeue, index-instead-of-node bookmark).
+
 ## Open threads / next
 - ~~"Fill a slot with a variable"~~ solved by Phase 8: drag the variable's palette
   tile onto the number (the displaced number goes to the spares).
 - ~~Assign-target authoring~~, ~~despawn on the shelf~~, ~~label/jump
   authoring~~ — all landed in Phase 10 via the chip-tap rule.
+- **Phase 13 (visits/stack/belt) is SPECced above — build next.**
 - **Wire-endpoint dragging** (grab an arrowhead, drop it on another flag):
   lovely direct-manipulation polish, deferred (thin bezier hit targets).
 - **Auto-open** the fresh operand's editor after wrap? Currently flash-only.
