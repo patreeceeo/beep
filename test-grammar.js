@@ -35,7 +35,8 @@ function ok(cond, name) {
   const E = (op, a, b) => evalExpr(bin(op, num(a), num(b)));
 
   console.log('T1: OPS now carries x and div (number->number, identity 1)');
-  ok(OPS.length === 4, 'four ops, got ' + OPS.length);
+  const numOps = OPS.filter(o => o.in === 'number');
+  ok(numOps.length === 4, 'four NUMBER ops, got ' + numOps.length);
   const byOp = Object.fromEntries(OPS.map(o => [o.op, o]));
   ok(byOp['*'] && byOp['/'], 'x and div present');
   ['+','-','*','/'].forEach(op =>
@@ -79,7 +80,8 @@ function ok(cond, name) {
 
   console.log('T7: the palette auto-derived the two new op tiles');
   const optiles = [...document.getElementById('palette').querySelectorAll('.optile.proto')];
-  ok(optiles.length === 4, 'four op tiles on the shelf, got ' + optiles.length);
+  const allOps = OPS.length + L.UNARY_OPS.length;
+  ok(optiles.length === allOps, 'one op tile per registry entry, got ' + optiles.length + ' for ' + allOps);
   const glyphs = optiles.map(e => e.textContent);
   ok(glyphs.indexOf('×') !== -1 && glyphs.indexOf('÷') !== -1, 'shelf shows x and div');
 

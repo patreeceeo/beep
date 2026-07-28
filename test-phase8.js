@@ -57,13 +57,15 @@ const strip = el => el.textContent.replace(/\s+/g, '');
   setRect(trashEl, 900, 0, 74, 60);
 
   console.log('T1: palette structure');
-  // Phase 9 added statement prototypes; the PIECE shelf is 27
-  // (Phase 11a added x and div, Phase 11b added the 6 comparisons)
+  // Phase 9 added statement prototypes; the PIECE shelf is 32 (Phase 11a added
+  // x and div, 11b the 6 comparisons, 11c the 2 booleans and and/or/not)
   const protos = paletteEl.querySelectorAll('.proto:not(.stmt-tile)');
-  ok(protos.length === 27, '27 piece prototypes (1 num + 8 vars + 8 sensors + 6 comparisons + 4 ops), got ' + protos.length);
-  ok(paletteEl.querySelectorAll('.pred.proto:not(.cmp)').length === 8, '8 sensor hexagons');
+  ok(protos.length === 32,
+     '32 piece prototypes (1 num + 8 vars + 8 sensors + 2 yes/no + 6 comparisons + 7 ops), got ' + protos.length);
+  ok(paletteEl.querySelectorAll('.pred.proto:not(.cmp):not(.bool)').length === 8, '8 sensor hexagons');
   ok(paletteEl.querySelectorAll('.pred.proto.cmp').length === 6, '6 comparison hexagons');
-  ok(paletteEl.querySelectorAll('.optile.proto').length === 4, '4 operation tiles (+, -, x, div)');
+  ok(paletteEl.querySelectorAll('.pred.proto.bool').length === 2, '2 boolean literal hexagons');
+  ok(paletteEl.querySelectorAll('.optile.proto').length === 7, '7 operation tiles (+, -, x, div, and, or, not)');
   ok(trayEl.children.length === 5, 'tray starts with 5 seed tiles');
 
   // focus  ballX = ballX + ballVelocityX
@@ -81,7 +83,7 @@ const strip = el => el.textContent.replace(/\s+/g, '');
      'slot now holds the fresh 0');
   ok(trayEl.children.length === 6, 'tray grew to 6 tiles');
   ok(/ballVelocityX/.test(trayEl.textContent), 'displaced ballVelocityX is now a spare tile');
-  ok(paletteEl.querySelectorAll('.proto:not(.stmt-tile)').length === 27, 'prototype stayed on the shelf');
+  ok(paletteEl.querySelectorAll('.proto:not(.stmt-tile)').length === 32, 'prototype stayed on the shelf');
 
   console.log('T3: operation prototype WRAPS its target (identity seeded)');
   const plusProto = [...paletteEl.querySelectorAll('.optile.proto')][0];

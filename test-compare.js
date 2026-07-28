@@ -76,8 +76,14 @@ const popButtons = () => [...document.querySelectorAll('.leaf-pop .opt')];
   const ops = CMPS.map(o => o.op);
   ['<','>','<=','>=','==','!='].forEach(op =>
     ok(ops.indexOf(op) !== -1, op + ' present'));
-  ok(window.__lang.OPS.every(o => o.out === 'number'),
-     'OPS stays purely number->number (comparisons are NOT wrap material)');
+  // the real invariant that keeps comparisons OUT of bin: every bin op preserves
+  // its type, so collapsing a bin always leaves something valid where it sat.
+  // A comparison (number->boolean) could never satisfy this, which is exactly why
+  // it is its own node type - whereas and/or (boolean->boolean) can and do.
+  ok(window.__lang.OPS.every(o => o.in === o.out),
+     'every OPS entry is type-PRESERVING (in === out) - that is what makes a bin safe');
+  ok(!window.__lang.OPS.some(o => o.in === 'number' && o.out === 'boolean'),
+     'no op turns numbers into a boolean - comparisons are not wrap material');
 
   console.log('T2: cmpGlyph maps every test to its maths glyph');
   ok(cmpGlyph('<') === '<', '<');

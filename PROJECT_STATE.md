@@ -14,7 +14,7 @@ resume without re-deriving context.
 ## Files in this folder
 Persisted (source of truth): `beep.html`, this file,
 `test-phase8.js`, `test-phase9.js`, `test-drop.js`, `test-grammar.js`,
-`test-diverror.js`, `test-compare.js`, `package.json` (+ lockfile).
+`test-diverror.js`, `test-compare.js`, `test-bool.js`, `package.json` (+ lockfile).
 Generated - recreate, don't commit: `node_modules` (`npm install`),
 `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
 (one-shot edit scripts, already applied).
@@ -41,12 +41,16 @@ substitute behind. Corollaries the whole codebase leans on:
   `{kind:'stmt', make}` (Phase 9).
 - jsdom suites alongside the html: `test-phase8.js` (28 asserts) and
   `test-phase9.js` (63 asserts, incl. panel fold/reorder, help popovers, menu parity, nemesis, Phase-10 chip choosers). Both must stay green; phase-8's T1/T2
-  count `.proto:not(.stmt-tile)` (**27** today: 1 num + 8 vars + 8 sensors +
-  6 comparisons + 4 ops — bump them when the shelf grows), and post-Reset tests
-  must RE-QUERY block elements (Reset rebuilds them all since Phase 9).
-- Expressions: `num`, `var`, `bin{op,left,right}`. Conditions: `key`, `touch`,
-  `cmp{op,left,right}` (Phase 11b — boolean-typed, but its OPERANDS are numbers).
-- Constructors: `v`, `num`, `bin`, `keyCond`, `touchCond`, `cmp`; builders `label/goto_/…`.
+  count `.proto:not(.stmt-tile)` (**32** today: 1 num + 8 vars + 8 sensors +
+  2 yes/no + 6 comparisons + 7 ops — bump them when the shelf grows), and
+  post-Reset tests must RE-QUERY block elements (Reset rebuilds them all
+  since Phase 9).
+- Expressions: `num`, `var`, `bin{op,left,right}`. Booleans: `key`, `touch`,
+  `bool{value}` (11c literal), `cmp{op,left,right}` (11b — boolean-typed but its
+  OPERANDS are numbers), `not{operand}` (11c — the only UNARY node).
+  A `bin` is BOTH: it takes its type from its op (`+` number, `and` boolean).
+- Constructors: `v`, `num`, `bin`, `keyCond`, `touchCond`, `cmp`, `bool`, `notOf`;
+  builders `label/goto_/…`.
 - Eval/render: `evalExpr`, `execStmt`, `renderStmt` (compact), `nodeHtml` (editable/
   draggable), `htmlExpr` (compact expr), `bubbleExpr` (values substituted).
 - **Slot registry:** `slotReg` maps id → `{parent, field}`; `reg` / `slotNode` /
@@ -166,6 +170,9 @@ substitute behind. Corollaries the whole codebase leans on:
 - Tap operand (num/var/pred) → chooser (edit value) + "wrap in" + "take out" sections.
 - Tap operator → bin menu: flip sign + "wrap in" (wraps whole subtree).
 - Tap a comparison's operator (or its hexagon) → pick the test / "the opposite".
+- Drag an `and`/`or`/`not` op tile onto any boolean piece → wraps it (and/or seed
+  their identity, so behaviour is unchanged until you tune the fresh yes/no).
+  Tap a `not`'s handle → "remove the not". Drag a yes/no hexagon → a literal.
   Drag a comparison hexagon from the shelf onto a condition → it REPLACES the
   sensor there (which retreats to the spares). Its two operands are normal number
   slots — drop a variable on one, wrap it in +, tap to retype it.
@@ -179,6 +186,41 @@ substitute behind. Corollaries the whole codebase leans on:
   Activation counts TOTAL movement (x+y) and the ghost follows both axes, so a
   sideways pull toward the right-panel zones works — it was vertical-only before.
 - Grip tap → statement menu: duplicate / to spare tiles / delete.
+
+## THE TYPE RULE FOR BINS (Phase 11c — read this before adding an operation)
+**A `bin` may host an op iff `in === out`.** That single rule decides where every
+new operation goes, and it is the always-valid invariant applied to `bin`:
+collapsing a bin replaces it with one of its operands, so unless the op preserves
+its type, collapse would leave something of the wrong type in the slot. Hence:
+- `+ − × ÷` (number→number) and `and or` (boolean→boolean) are ordinary bin ops,
+  live in `OPS`, and arrive by **in-place wrap** — the palette op-tile drag and the
+  chooser's "wrap in" section both derive from `OPS`, so adding one is one entry.
+- a **comparison** is number→boolean, so it can NEVER be a bin — its own node type
+  (`cmp`), delivered as a palette VALUE prototype dropped into a boolean slot.
+- **`not`** is boolean→boolean but UNARY, and has no identity, so it breaks the
+  other two `bin` assumptions instead. Own node type, own one-entry `UNARY_OPS`
+  registry, unioned into `opsFor`, and `wrapNode` branches on `o.unary`.
+`typeOf(bin)` and `expectedType(bin operand)` both read the op registry via
+`opSig`, which is what makes the same `bin` machinery serve both worlds.
+
+## Boolean grammar (Phase 11c)
+- `bool{value}` — the yes/no LITERAL, the boolean counterpart of `num`. It exists
+  for its own sake (a constant to force a branch) but it was also the blocker on
+  and/or: wrap seeds an op's identity as a NODE (`identityNode`), and the identity
+  of `and` is yes, of `or` is no. There was nothing to seed them with before.
+- `and`/`or` in `OPS` (identity `true`/`false`), paired in `FLIP`. Everything
+  downstream auto-derived: op tiles, wrap menus, the drop gate.
+- `not{operand}` — its handle offers **"remove the not"**, because wrapping in it
+  CHANGES the answer (no identity), so an un-undoable wrap would be a one-way door.
+  Removal is always safe: `not X` and `X` are both booleans.
+- **and/or evaluate EAGERLY — no short-circuit, deliberately.** The thought bubble
+  prints both operands' values, so a half-evaluated expression would show Beep
+  reporting a value he never actually read.
+- A boolean `bin` or a `not` renders as a `.group.boolgroup` (gold): the box is
+  coloured by TYPE, so a glance says what a subtree yields wherever it sits.
+- `test-bool.js` (84 asserts) covers all of it, incl. the in===out invariant, the
+  identity-is-a-no-op promise, De Morgan as a consistency check, and the chooser
+  path for `not`. Mutation-tested against 6 seeded bugs.
 
 ## Comparison registry (Phase 11b)
 `CMPS = [{op}]` for `<`, `>`, `<=`, `>=`, `==`, `!=`; `cmpGlyph` maps the stored
@@ -358,9 +400,14 @@ Staged migration (protect the 90 green asserts - NO big-bang):
       property, the shelf, a live drop into a condition, operand editing, the
       operator chooser, the REFUSAL of a comparison in a number slot, runtime, and
       Reset. Mutation-tested against 4 seeded bugs.
-  - **Still open:** and/or/not (boolean→boolean, plus unary `not`, which breaks
-    the binary-`bin` assumption — `cmp` sets the precedent that a new shape gets a
-    new node type rather than a flag on an old one). A `not` would also want a
-    boolean→boolean entry in a `BOOL_OPS` registry, at which point
-    `appendWrapSection` on a `cmp` starts rendering (it is already wired and
-    silently empty today).
+  - ~~and/or/not~~ **DONE (Phase 11c, this session)** — see "Boolean grammar"
+    above. The mirror image of 11b: because and/or are boolean→BOOLEAN they are
+    legal bin ops and came in through the **wrap** door that already existed,
+    where comparisons could not. The only genuinely new machinery was the boolean
+    LITERAL (wrap needs an identity to seed) and the unary branch for `not`.
+    `appendWrapSection` on a `cmp` — wired but silently empty since 11b — now
+    renders, exactly as predicted.
+  - **Grammar is now closed** for the Breakout domain: numbers, booleans, the
+    number→boolean bridge, and the boolean algebra over it. Next expansions would
+    be new TYPES (a sprite/point type?) rather than new ops, and the registries
+    are shaped for it.

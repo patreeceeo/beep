@@ -108,6 +108,10 @@
      reads "this is a yes/no"; the tokens inside stay ordinary number material. */
   .pred.cmp .pred-in{ padding:1px 13px; gap:2px; }
   .pred.cmp .cmp-op{ color:var(--sun-deep); font-weight:700; padding:0 3px; }
+  /* Phase 11c: an and/or group is a .group box wearing the boolean colour, so the
+     type is legible at a glance wherever the subtree sits. */
+  .group.boolgroup{ background:rgba(240,180,41,.12); border-color:var(--sun); }
+  .group.boolgroup > .op{ color:var(--sun-deep); font-weight:700; padding:0 3px; }
   .group .op, .token .op{ font-family:'Fredoka',sans-serif; color:var(--ink-soft); padding:0 1px; }
   .op{ font-family:'Fredoka',sans-serif; color:var(--ink-soft); padding:0 2px; }
   /* ------- Phase 6: edit a leaf in place -------
@@ -764,10 +768,31 @@
   // expected. Its operands are ordinary number slots, so every existing gesture
   // (drag, swap, tap-to-edit, wrap in +) works inside it for free.
   function cmp(op, left, right){ return { type:'cmp', op:op, left:left, right:right }; }
+  // Phase 11c: a boolean LITERAL - the yes/no counterpart of `num`. Wanted for its
+  // own sake (a constant to force a branch while debugging), but it also unblocks
+  // and/or: wrap seeds the operation's identity, and the identity of `and` is yes,
+  // of `or` is no. Without a boolean literal there was nothing to seed them with.
+  function bool(value){ return { type:'bool', value:!!value }; }
+  // Phase 11c: `not` takes ONE operand, so it cannot be a bin. Same precedent cmp
+  // set - a new shape gets a new node type, not a flag on an old one.
+  function notOf(operand){ return { type:'not', operand:operand }; }
 
   function opGlyph(op){
-    return op === '-' ? '\u2212' : op === '*' ? '\u00d7' : op === '/' ? '\u00f7' : '+';
+    // and/or read as WORDS, not symbols - this is a language for people who are
+    // still learning what the symbols mean
+    return op === '-' ? '\u2212' : op === '*' ? '\u00d7' : op === '/' ? '\u00f7'
+         : op === 'and' ? 'and'  : op === 'or'  ? 'or'
+         : op === 'not' ? 'not'  : '+';
   }
+  // an op's signature, looked up at call time (OPS is declared further down)
+  function opSig(op){
+    for (let i = 0; i < OPS.length; i++) if (OPS[i].op === op) return OPS[i];
+    return null;
+  }
+  // the fresh operand a wrap seeds: an op's identity as a NODE, not a number
+  function identityNode(o){ return o.in === 'boolean' ? bool(o.identity) : num(o.identity); }
+  function identityLabel(o){ return o.in === 'boolean' ? (o.identity ? 'yes' : 'no') : String(o.identity); }
+  function boolWord(b){ return b ? 'yes' : 'no'; }
   // the stored comparison op is the JS-ish spelling ('<=' ), the glyph is the
   // maths one a learner reads. A function, not a map, so it hoists above CMPS.
   function cmpGlyph(op){
@@ -781,12 +806,19 @@
     switch(e.type){
       case 'num':   return e.value;
       case 'var':   return state[e.name];
+      case 'bool':  return e.value;
+      case 'not':   return !evalExpr(e.operand);
+      // NOTE: both operands are evaluated EAGERLY, and/or included - no
+      // short-circuit. Deliberate: the thought bubble shows both sides' values, so
+      // a half-evaluated expression would print a value Beep never actually read.
       case 'bin':   { const l = evalExpr(e.left), r = evalExpr(e.right);
                       switch (e.op){
                         case '-': return l - r;
                         case '*': return l * r;
                         case '/': if (r === 0){ divByZero = true; return 0; }  // /0 is an ERROR: flag it
                                   return l / r;
+                        case 'and': return !!(l && r);
+                        case 'or':  return !!(l || r);
                         default:  return l + r;                 // '+'
                       } }
       case 'cmp':   { const l = evalExpr(e.left), r = evalExpr(e.right);
@@ -810,9 +842,16 @@
       case 'var': return chip(e.name);
       case 'bin': { const s = htmlExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + htmlExpr(e.right, true);
                     return nested ? '(' + s + ')' : s; }
-      // a comparison binds looser than every arithmetic op, so its operands never
-      // need parentheses of their own
-      case 'cmp': return htmlExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + htmlExpr(e.right);
+      // a comparison binds looser than every arithmetic op, so its own operands
+      // never need parentheses - but it takes them when it sits inside an and/or
+      case 'cmp': { const s = htmlExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + htmlExpr(e.right);
+                    return nested ? '(' + s + ')' : s; }
+      case 'bool': return boolWord(e.value);
+      case 'not': { const s = 'not ' + htmlExpr(e.operand, true);
+                    return nested ? '(' + s + ')' : s; }
+      // sensors can now sit inside an expression (as and/or operands), so the two
+      // renderers are mutually recursive: condHtml owns the sensor wording
+      case 'key': case 'touch': return condHtml(e);
     }
     return '';
   }
@@ -823,19 +862,27 @@
       case 'var': return valStr(state[e.name]);
       case 'bin': { const s = bubbleExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + bubbleExpr(e.right, true);
                     return nested ? '(' + s + ')' : s; }
-      case 'cmp': return bubbleExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + bubbleExpr(e.right);
+      case 'cmp': { const s = bubbleExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + bubbleExpr(e.right);
+                    return nested ? '(' + s + ')' : s; }
+      case 'bool': return boolWord(e.value);
+      case 'not': { const s = 'not ' + bubbleExpr(e.operand, true);
+                    return nested ? '(' + s + ')' : s; }
+      // a sensor bubbles as its LIVE reading, the same way a var bubbles its value
+      case 'key': case 'touch': return boolWord(evalExpr(e));
     }
     return '';
   }
   function condHtml(c){
-    if (c.type === 'cmp') return htmlExpr(c);
+    // a condition may now be any boolean-typed node: a comparison, a literal, or
+    // an and/or bin. Only the two SENSORS have wording of their own.
+    if (c.type === 'cmp' || c.type === 'bool' || c.type === 'bin' || c.type === 'not') return htmlExpr(c);
     return c.type === 'key' ? chip(c.arrowLabel) + ' isKeyPressed'
                             : chip('ball') + ' isTouching ' + chip(c.label);
   }
   function condNoBubble(c){
     // a comparison reports its OPERANDS' live values ("120 < 100? no") - the same
     // substitution bubbleExpr does for an assign, so a failed test is legible
-    if (c.type === 'cmp') return bubbleExpr(c) + '? no';
+    if (c.type === 'cmp' || c.type === 'bool' || c.type === 'bin' || c.type === 'not') return bubbleExpr(c) + '? no';
     return c.type === 'key' ? c.arrowLabel + ' pressed? no'
                             : 'touching ' + c.label + '? no';
   }
@@ -1002,15 +1049,27 @@
     if (n.type === 'var')   return { type:'var', name:n.name };
     if (n.type === 'num')   return { type:'num', value:n.value };
     if (n.type === 'cmp')   return { type:'cmp', op:n.op, left:cloneNode(n.left), right:cloneNode(n.right) };
+    if (n.type === 'bool')  return { type:'bool', value:n.value };
+    if (n.type === 'not')   return { type:'not', operand:cloneNode(n.operand) };
     if (n.type === 'key')   return { type:'key', key:n.key, arrowLabel:n.arrowLabel };
     if (n.type === 'touch') return { type:'touch', target:n.target, label:n.label };
     return { type:n.type };
   }
   // each expression/condition node has a value TYPE; slots only accept a matching one
+  /* A node's value TYPE. Two rules:
+     - 'cmp' is the number->boolean BRIDGE: its OPERANDS are numbers but the node
+       reads as a boolean, which is exactly what lets it fill a condition. It needs
+       its own node type precisely because in !== out.
+     - a 'bin' takes its type from its OPERATION (+ is number->number, `and` is
+       boolean->boolean). This is safe for exactly the ops where in === out, which
+       is the rule OPS enforces and the reason and/or may live in a bin while a
+       comparison may not: collapsing `A and B` leaves A, still a boolean, still
+       valid where it sits - whereas collapsing `a < b` would leave a bare number
+       in a boolean slot. in === out IS the always-valid invariant for bins. */
   function typeOf(node){
-    // 'cmp' is the number->boolean bridge: its OPERANDS are numbers but the node
-    // itself reads as a boolean, which is exactly what lets it fill a condition.
-    return (node.type === 'key' || node.type === 'touch' || node.type === 'cmp') ? 'boolean' : 'number';
+    if (node.type === 'bin'){ const o = opSig(node.op); return o ? o.out : 'number'; }
+    return (node.type === 'key' || node.type === 'touch' || node.type === 'cmp'
+         || node.type === 'bool' || node.type === 'not') ? 'boolean' : 'number';
   }
   program.forEach(function(b){
     if (b.type === 'assign') b._initialExpr = cloneNode(b.expr);
@@ -1264,8 +1323,10 @@
   // nemesis to warn (he points, he doesn't zap). The divisor is read with the
   // same live values bubbleExpr shows, so this is the "current instance".
   function collectDivZero(node, out){
-    // cmp carries left/right too, so a /0 hiding inside a comparison is still found
-    if (!node || (node.type !== 'bin' && node.type !== 'cmp')) return;
+    if (!node) return;
+    // `not` carries ONE child; bin and cmp carry two - walk whichever this has
+    if (node.type === 'not'){ collectDivZero(node.operand, out); return; }
+    if (node.type !== 'bin' && node.type !== 'cmp') return;
     collectDivZero(node.left, out);
     collectDivZero(node.right, out);
     if (node.type === 'bin' && node.op === '/'){
@@ -1286,7 +1347,9 @@
   }
   function subtreeHas(root, node){
     if (root === node) return true;
-    if (!root || (root.type !== 'bin' && root.type !== 'cmp')) return false;
+    if (!root) return false;
+    if (root.type === 'not') return subtreeHas(root.operand, node);
+    if (root.type !== 'bin' && root.type !== 'cmp') return false;
     return subtreeHas(root.left, node) || subtreeHas(root.right, node);
   }
   function stmtOfNode(node){
@@ -1639,7 +1702,11 @@
     const s = slotReg[id];
     if (Array.isArray(s.parent)) return typeOf(s.parent[s.field]);
     if (s.parent.type === 'ifjump' && s.field === 'cond') return 'boolean';
-    return 'number';   // assign.expr, bin operands, and cmp operands
+    // a bin's operands are typed by its operation: `+` wants numbers, `and` wants
+    // booleans. (in === out for every bin op, so this also equals typeOf the bin.)
+    if (s.parent.type === 'bin'){ const o = opSig(s.parent.op); return o ? o.in : 'number'; }
+    if (s.parent.type === 'not') return 'boolean';
+    return 'number';   // assign.expr and cmp operands
   }
 
   function justCls(n){ if (n._justSet){ n._justSet = false; return ' just-set'; } return ''; }
@@ -1654,7 +1721,22 @@
                   + '<span class="op" data-op="'+selfId+'">' + opGlyph(node.op) + '</span>'
                   + nodeHtml(node.right, node, 'right', false);
       if (isRoot) return inner;                    // root RHS: parts move, whole doesn't
-      return '<span class="group'+justCls(node)+'" data-sl="'+selfId+'">'+inner+'</span>';
+      // the box is COLOURED BY TYPE: an and/or group is gold like every other
+      // boolean piece, so a glance says what it yields wherever it sits
+      const gcls = 'group' + (typeOf(node) === 'boolean' ? ' boolgroup' : '');
+      return '<span class="'+gcls+justCls(node)+'" data-sl="'+selfId+'">'+inner+'</span>';
+    }
+    if (node.type === 'not'){
+      // rendered as a boolean GROUP, so it reuses the bin idioms wholesale: the
+      // word "not" is the node's handle (data-op), the box is its slot (data-sl).
+      const selfId = reg(parent, field);
+      const inner = '<span class="op" data-op="'+selfId+'">not</span>'
+                  + nodeHtml(node.operand, node, 'operand', false);
+      return '<span class="group boolgroup'+justCls(node)+'" data-sl="'+selfId+'">'+inner+'</span>';
+    }
+    if (node.type === 'bool'){
+      return '<span class="pred bool'+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'
+           +   '<span class="pred-in">'+boolWord(node.value)+'</span></span>';
     }
     if (node.type === 'cmp'){
       // the hexagon says "this is a yes/no"; inside it sit two REAL number slots
@@ -2003,6 +2085,7 @@
     closeLeafPop();
     if (node && node.type === 'bin') openBinPop(liveAnchor(node, opEl), node);
     else if (node && node.type === 'cmp') openCmpPop(liveAnchor(node, opEl), node);
+    else if (node && node.type === 'not') openNotPop(opEl, node);
   }
 
   // dispatch a leaf tap to the right chooser (a bin group has no content of its
@@ -2022,6 +2105,7 @@
     if (node.type === 'var') return openVarPop(anchor, node);
     if (node.type === 'key' || node.type === 'touch') return openPredPop(anchor, node);
     if (node.type === 'cmp') return openCmpPop(anchor, node);
+    if (node.type === 'bool') return openBoolPop(anchor, node);
   }
 
   /* ---- the chooser popover (one at a time, floated over everything) ---- */
@@ -2090,11 +2174,27 @@
     { op:'+', identity:0, in:'number', out:'number' },
     { op:'-', identity:0, in:'number', out:'number' },
     { op:'*', identity:1, in:'number', out:'number' },
-    { op:'/', identity:1, in:'number', out:'number' }
+    { op:'/', identity:1, in:'number', out:'number' },
+    // Phase 11c - boolean->boolean, so they are legal bin ops (in === out) and
+    // arrive by ordinary in-place WRAP, the door comparisons could not use.
+    // Identity: `and yes` and `or no` both leave the wrapped condition unchanged.
+    { op:'and', identity:true,  in:'boolean', out:'boolean' },
+    { op:'or',  identity:false, in:'boolean', out:'boolean' }
   ];
   // toggle partners for the operator tap-menu's "make it ..." flip (same type, so
   // the always-valid invariant holds); wrap seeds identity (0 for +/-, 1 for x/div)
-  const FLIP = { '+':'-', '-':'+', '*':'/', '/':'*' };
+  const FLIP = { '+':'-', '-':'+', '*':'/', '/':'*', 'and':'or', 'or':'and' };
+  /* Phase 11c - the one UNARY operation, in its own tiny registry. `not` breaks
+     TWO assumptions the OPS machinery rests on: that an operation has two
+     operands, and that a wrap seeds an IDENTITY so behaviour is unchanged until
+     the fresh operand is tuned. `not` has neither - one operand, and it always
+     flips the answer. So it gets its own node type and its own list, which
+     opsFor unions with OPS. It is still type-PRESERVING (boolean->boolean), so
+     the wrap filter, the palette tile and the drop gate all work on it unchanged.
+     Because wrapping in it is a real behaviour change rather than a no-op
+     scaffold, its handle offers "remove the not" - a wrap that cannot be undone
+     from the thing it wrapped would be a one-way door. */
+  const UNARY_OPS = [{ op:'not', in:'boolean', out:'boolean', unary:true }];
   /* Phase 11b - the COMPARISON registry (number x number -> boolean). Kept apart
      from OPS deliberately: comparisons are not wrap material. opsFor's two-sided
      filter would only ever offer `<` to a number whose slot also expects a
@@ -2109,6 +2209,8 @@
   function divCheck(e){ divByZero = false; const value = evalExpr(e); return { value:value, divByZero:divByZero }; }
   window.__lang = { evalExpr:evalExpr, opGlyph:opGlyph, OPS:OPS, FLIP:FLIP,
                     cmpGlyph:cmpGlyph, CMPS:CMPS, CMP_FLIP:CMP_FLIP, cmp:cmp,
+                    bool:bool, typeOf:typeOf, identityNode:identityNode,
+                    notOf:notOf, UNARY_OPS:UNARY_OPS,
                     bin:bin, num:num, v:v,
                     divCheck:divCheck, execStmt:execStmt, stepInstant:stepInstant, state:state,
                     dividesByZero:function(node){ const set=new Set(); collectDivZero(node, set); return set.size > 0; } };
@@ -2116,13 +2218,20 @@
     const id = slotIdOf(node);
     const inT = typeOf(node);
     const outT = id ? expectedType(id) : inT;
-    return OPS.filter(function(o){ return o.in === inT && o.out === outT; });
+    return OPS.concat(UNARY_OPS).filter(function(o){ return o.in === inT && o.out === outT; });
   }
   // wrap `node` in `o`: node becomes the left operand, o.identity the fresh right one
   function wrapNode(node, o){
     const id = slotIdOf(node);
     if (!id) return;
-    const fresh = num(o.identity);
+    if (o.unary){                          // `not` wraps alone - no second operand
+      const n = notOf(node);
+      setSlotNode(id, n);
+      n._justSet = true;                   // flash the change (it CHANGED behaviour)
+      renderSlots(); clearJustSetSoon();
+      return;
+    }
+    const fresh = identityNode(o);        // number OR boolean, per the op
     setSlotNode(id, bin(o.op, node, fresh));
     fresh._justSet = true;                 // flash the blank to fill in
     renderSlots(); clearJustSetSoon();
@@ -2136,7 +2245,8 @@
     const grid = document.createElement('div'); grid.className = 'pop-grid'; sec.appendChild(grid);
     ops.forEach(function(o){
       const b = document.createElement('button'); b.className = 'opt';
-      b.textContent = opGlyph(o.op) + ' ' + o.identity;    // e.g. "+ 0" - the identity you then fill in
+      // "+ 0" / "and yes" - the identity you then tune. `not` has none to show.
+      b.textContent = o.unary ? opGlyph(o.op) : opGlyph(o.op) + ' ' + identityLabel(o);
       b.addEventListener('click', function(ev){
         ev.preventDefault();
         const pend = leafPopCommit; leafPopCommit = null;  // commit any typed value first
@@ -2264,6 +2374,40 @@
     const grid = popGrid(pop);
     optButton(grid, 'make it ' + opGlyph(FLIP[node.op]), false, function(){
       node.op = FLIP[node.op]; markEdited(node); cancelLeafPop();
+    });
+    appendWrapSection(pop, node);
+    appendZoneSection(pop, node);
+  }
+
+  // `not` is the only operation whose handle can UNDO it. Wrapping in `not`
+  // changed the answer (it has no identity to seed), so it must be removable from
+  // the thing it wrapped, or the wrap would be a one-way door. Removing it is
+  // always safe: `not X` and `X` are both booleans, so the slot stays valid.
+  function openNotPop(anchorEl, node){
+    const s = slotReg[anchorEl.dataset.op];        // where the `not` itself sits
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'not');
+    const grid = popGrid(pop);
+    optButton(grid, 'remove the not', false, function(){
+      const inner = node.operand;
+      if (s) s.parent[s.field] = inner;            // not X -> X
+      markEdited(inner); cancelLeafPop();
+    });
+    appendWrapSection(pop, node);
+    appendZoneSection(pop, node);
+  }
+
+  // boolean literal: yes or no. The simplest chooser in the language - two options,
+  // content-only, and (unlike a sensor) it can be WRAPPED, because and/or are
+  // boolean->boolean ops that appendWrapSection now finds.
+  function openBoolPop(anchorEl, node){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'yes or no');
+    const grid = popGrid(pop);
+    [true, false].forEach(function(val){
+      optButton(grid, boolWord(val), node.value === val, function(){
+        node.value = val; markEdited(node); cancelLeafPop();
+      });
     });
     appendWrapSection(pop, node);
     appendZoneSection(pop, node);
@@ -2404,7 +2548,7 @@
     }
     function predEl(node){
       const pr = document.createElement('span');
-      pr.className = 'pred' + (node.type === 'cmp' ? ' cmp' : '');
+      pr.className = 'pred' + (node.type === 'cmp' ? ' cmp' : node.type === 'bool' ? ' bool' : '');
       pr.innerHTML = '<span class="pred-in">' + condHtml(node) + '</span>';
       return pr;
     }
@@ -2429,13 +2573,17 @@
        whole "build into a boolean slot" flow: no new payload, no new target, no
        new row in DROP_TABLE. Both operands arrive as 0 - a comparison has no
        identity to seed, so the honest default is a visibly blank test to tune. */
+    g = group('yes / no');
+    [true, false].forEach(function(val){
+      add(g, { kind:'value', make:function(){ return bool(val); } }, predEl(bool(val)));
+    });
     g = group('comparisons');
     CMPS.forEach(function(o){
       add(g, { kind:'value', make:function(){ return cmp(o.op, num(0), num(0)); } },
           predEl(cmp(o.op, num(0), num(0))));
     });
     g = group('operations');
-    OPS.forEach(function(o){
+    OPS.concat(UNARY_OPS).forEach(function(o){
       const el = tokenEl('optile', opGlyph(o.op));
       el.title = 'drop on a piece to wrap it in ' + opGlyph(o.op);
       add(g, { kind:'op', op:o }, el);
