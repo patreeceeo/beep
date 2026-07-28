@@ -14,7 +14,8 @@ resume without re-deriving context.
 ## Files in this folder
 Persisted (source of truth): `beep.html`, this file,
 `test-phase8.js`, `test-phase9.js`, `test-drop.js`, `test-grammar.js`,
-`test-diverror.js`, `test-compare.js`, `test-bool.js`, `package.json` (+ lockfile).
+`test-diverror.js`, `test-compare.js`, `test-bool.js`, `test-sprite.js`,
+`package.json` (+ lockfile).
 Generated - recreate, don't commit: `node_modules` (`npm install`),
 `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
 (one-shot edit scripts, already applied).
@@ -177,7 +178,9 @@ substitute behind. Corollaries the whole codebase leans on:
   sensor there (which retreats to the spares). Its two operands are normal number
   slots — drop a variable on one, wrap it in +, tap to retype it.
 - Tap a chip → repoint the reference: flagref = retarget, flag = rename,
-  assign LHS = pick variable, despawn sprite = pick sprite.
+  assign LHS = pick variable, despawn sprite = pick sprite, edge = pick edge.
+- Drag a sprite PILL onto any sprite slot (inside isTouching / an edge test /
+  `x of` / `is alive`). Tap a pill → pick another sprite. Tap "x of" → x or y.
 - Drag palette prototype → ghost copy: drop on compatible slot (replace; old piece
   to spares) / tray area (mint tile) / a piece, if an op tile (wrap) / Trash (cancel).
 - Drag statement prototype / stashed statement tile → real block under the pointer,
@@ -186,6 +189,78 @@ substitute behind. Corollaries the whole codebase leans on:
   Activation counts TOTAL movement (x+y) and the ghost follows both axes, so a
   sideways pull toward the right-panel zones works — it was vertical-only before.
 - Grip tap → statement menu: duplicate / to spare tiles / delete.
+
+## Phase 12 — the SPRITE type (three types now: number, boolean, sprite)
+A sprite used to be a name STRING baked into a statement. It is a VALUE now:
+`sprite{name}`, `typeOf` → `'sprite'`, coral PILL on the shelf (numbers are teal
+boxes, booleans gold hexagons — silhouette tells you the type before you read it).
+- **Two BRIDGES off it** (in ≠ out, so by the 11c rule neither can be a bin op nor
+  arrive by wrap; each is its own node type delivered as a palette VALUE prototype
+  into a slot of its OUTPUT type, exactly as `cmp` is):
+  `prop{prop,sprite}` = `x/y of <sprite>` (sprite→number, "x of" is its handle) and
+  `alive{sprite}` = `<sprite> is alive` (sprite→boolean). The second closes a real
+  Phase-10 gap: you could `despawn` a brick but never TEST for it.
+- **`touch{left,right}`** — `isTouching` is a relationship between two sprites now,
+  not a sensor with a baked-in subject. **`closing{left,right}`** (`isClosingOn`)
+  is its companion: overlap and approach are two separate questions. `touchCond` and `TOUCH_OPTS` are RETIRED;
+  one tile replaces the six old touch sensors and covers pairs they never could.
+- **`edge{sprite,edge}`** — `<sprite> isTouching ⟨left edge⟩`. The EDGE is a CHIP,
+  not a fourth type: four constants, never computed, never stored, never the result
+  of anything, so the Phase-10 chip idiom fits and a type would be overkill.
+  `viewLeftEdge / viewRightEdge / viewTopEdge / viewBottomEdge`.
+- **The seed program migrated onto both**, and its wall test now reads
+  `ball isTouching left edge or ball isTouching right edge` — the finer split is
+  only sayable because Phase 11c added `or`. Nice demonstration in the default view.
+
+### TOUCHING IS PURE OVERLAP — the guard lives in the PROGRAM (Phase 12d)
+`isTouching` answers exactly one question and answers it the way a learner would:
+are these two in the same place? No velocity anywhere in it. Same for an edge
+test — at or past the edge, nothing more.
+
+The approach guard that stops the ball sticking is a SEPARATE predicate,
+`closing{left,right}` = `<sprite> isClosingOn <sprite>`, and the **seed program
+applies it explicitly**:
+
+    if ball isTouching left edge  and ballVelocityX < 0  ... jump bounceX   (or right/>)
+    if ball isTouching paddle     and ball isClosingOn paddle  jump bounceY
+    if ball isTouching brick1                                  jump hit1
+
+That is the point: the rule that keeps the ball alive is a readable, editable part
+of the program rather than a hidden engine rule. The edge rows use a plain
+comparison on the velocity variable — a piece the learner already has, pointing at
+a number they can watch in the backpack. Bricks need no guard at all, because a hit
+despawns the brick so it cannot fire twice. **Why a guard is needed:** with pure
+overlap and no guard, a ball that overshoots an edge flips its velocity every pass
+and oscillates in place forever (x=−12, vX=+12 → trapped).
+
+**`isClosingOn` must be judged PER COLLISION AXIS.** It first used a plain dot
+product of the centre-line against relative velocity (`dx*vx + dy*vy`). That is
+wrong for overlapping boxes and shipped a real gameplay bug: two boxes that overlap
+have a TINY gap on the axis they collided along and a large one on the other, so
+the irrelevant axis dominates the sum — a ball falling onto the paddle while
+drifting sideways scored negative and passed straight through it, and brick hits
+looked "delayed" for the same reason. The fix picks the collision AXIS first (the
+shallower penetration is the axis the two have only just crossed) and asks about
+that axis alone. `test-sprite.js` T9/T9b/T9c are the regressions; T9b fails loudly
+if the dot product comes back. NOTE this was found by PLAYING the game, not by the
+suite — the sprite tests all had the ball moving straight down.
+
+**Known limit — `spriteVel` is convention-bound.** It reads `state.ballVelocityX/Y`
+by NAME for the ball and returns zero for everything else, so: the paddle genuinely
+moves (`nudgePaddle`) but reads as stationary, and a learner who builds movement
+without those variables (`ballX = ballX + 2`) gets `{0,0}` and `isClosingOn` falls
+back to its "nothing is moving" branch. Now that the guard is a single explicit
+predicate rather than baked into every collision, this limitation is at least
+visible in one place. The fix if it ever matters: cache each sprite's position per
+program pass and derive velocity from the delta — convention-free, works for any
+sprite moved by any means.
+
+### Gotcha found the hard way
+Phase 10 already had an `openSpritePop` (the despawn chip chooser). Duplicate
+function declarations are legal JS — the later one silently wins — so a new
+same-named chooser hijacked the call with no syntax error and no test failure until
+a DOM test drove it. The Phase-12 one is `openSpriteValuePop`. **`node --check`
+cannot catch this class of bug; only a test that actually taps the thing can.**
 
 ## THE TYPE RULE FOR BINS (Phase 11c — read this before adding an operation)
 **A `bin` may host an op iff `in === out`.** That single rule decides where every
@@ -407,7 +482,11 @@ Staged migration (protect the 90 green asserts - NO big-bang):
     LITERAL (wrap needs an identity to seed) and the unary branch for `not`.
     `appendWrapSection` on a `cmp` — wired but silently empty since 11b — now
     renders, exactly as predicted.
-  - **Grammar is now closed** for the Breakout domain: numbers, booleans, the
-    number→boolean bridge, and the boolean algebra over it. Next expansions would
-    be new TYPES (a sprite/point type?) rather than new ops, and the registries
-    are shaped for it.
+  - ~~a sprite/point TYPE~~ **DONE (Phase 12, this session)** — see the Sprite
+    section above. The registries took it without a fight: `typeOf`/`expectedType`
+    grew one branch each, and both bridges reused the `cmp` delivery route wholesale.
+  - **Still open in Phase 12:** `despawn`'s sprite and the `movePaddle`/`moveBall`
+    commands still bake a sprite NAME (despawn keeps its Phase-10 chip chooser).
+    Converting them to real sprite SLOTS — and collapsing the two move commands into
+    one `moveTo <sprite>` — is the obvious finish, and `moveTo(sprite)` is already
+    written to take a name. Nothing depends on it; the type is complete without it.

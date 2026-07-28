@@ -57,12 +57,14 @@ const strip = el => el.textContent.replace(/\s+/g, '');
   setRect(trashEl, 900, 0, 74, 60);
 
   console.log('T1: palette structure');
-  // Phase 9 added statement prototypes; the PIECE shelf is 32 (Phase 11a added
-  // x and div, 11b the 6 comparisons, 11c the 2 booleans and and/or/not)
+  // Phase 9 added statement prototypes; the PIECE shelf is 36. Phase 12 RETIRED
+  // the 6 baked touch sensors - one two-sprite `isTouching` tile plus one edge
+  // tile now cover every case they did, and more (any pair, any edge).
   const protos = paletteEl.querySelectorAll('.proto:not(.stmt-tile)');
-  ok(protos.length === 32,
-     '32 piece prototypes (1 num + 8 vars + 8 sensors + 2 yes/no + 6 comparisons + 7 ops), got ' + protos.length);
-  ok(paletteEl.querySelectorAll('.pred.proto:not(.cmp):not(.bool)').length === 8, '8 sensor hexagons');
+  ok(protos.length === 37,
+     '37 piece prototypes (1 num + 8 vars + 2 keys + touch + edge + closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops), got ' + protos.length);
+  ok(paletteEl.querySelectorAll('.pred.proto:not(.cmp):not(.bool):not(.alive)').length === 2, '2 key sensor hexagons');
+  ok(paletteEl.querySelectorAll('.token.sprtok.proto').length === 5, '5 sprite pills');
   ok(paletteEl.querySelectorAll('.pred.proto.cmp').length === 6, '6 comparison hexagons');
   ok(paletteEl.querySelectorAll('.pred.proto.bool').length === 2, '2 boolean literal hexagons');
   ok(paletteEl.querySelectorAll('.optile.proto').length === 7, '7 operation tiles (+, -, x, div, and, or, not)');
@@ -83,7 +85,7 @@ const strip = el => el.textContent.replace(/\s+/g, '');
      'slot now holds the fresh 0');
   ok(trayEl.children.length === 6, 'tray grew to 6 tiles');
   ok(/ballVelocityX/.test(trayEl.textContent), 'displaced ballVelocityX is now a spare tile');
-  ok(paletteEl.querySelectorAll('.proto:not(.stmt-tile)').length === 32, 'prototype stayed on the shelf');
+  ok(paletteEl.querySelectorAll('.proto:not(.stmt-tile)').length === 37, 'prototype stayed on the shelf');
 
   console.log('T3: operation prototype WRAPS its target (identity seeded)');
   const plusProto = [...paletteEl.querySelectorAll('.optile.proto')][0];
@@ -119,11 +121,13 @@ const strip = el => el.textContent.replace(/\s+/g, '');
     .find(c => /isKeyPressed/.test(c.textContent));
   checkContent.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await sleep(10);
-  const touchProto = [...paletteEl.querySelectorAll('.pred.proto')].find(t => /brick1/.test(t.textContent));
+  // Phase 12: the touch prototype is now `ball isTouching paddle` - two sprite slots
+  const touchProto = [...paletteEl.querySelectorAll('.pred.proto')]
+    .find(t => /isTouching/.test(t.textContent) && /paddle/.test(t.textContent));
   target = checkContent.querySelector('.pred[data-sl]');
   await dragProto(touchProto, 100, 100, [target]);
-  ok(/isTouching/.test(checkContent.textContent) && /brick1/.test(checkContent.textContent),
-     'condition is now touch brick1');
+  ok(/isTouching/.test(checkContent.textContent) && /paddle/.test(checkContent.textContent),
+     'condition is now ball isTouching paddle');
   ok(trayEl.children.length === 8 && /isKeyPressed/.test(trayEl.textContent),
      'displaced key sensor retreated to the spares');
 
