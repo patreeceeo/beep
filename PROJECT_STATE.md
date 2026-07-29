@@ -15,6 +15,7 @@ resume without re-deriving context.
 Persisted (source of truth): `beep.html`, this file,
 `test-phase8.js`, `test-phase9.js`, `test-drop.js`, `test-grammar.js`,
 `test-diverror.js`, `test-compare.js`, `test-bool.js`, `test-sprite.js`,
+`test-call.js`,
 `package.json` (+ lockfile).
 Generated - recreate, don't commit: `node_modules` (`npm install`),
 `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
@@ -37,9 +38,12 @@ substitute behind. Corollaries the whole codebase leans on:
   path routes through it.
 
 ## AST model (quick reference)
-- Statements: `label`, `goto`, `ifjump`, `assign`, `command`.
+- Statements: `label`, `goto`, `ifjump`, `assign`, `command`, and Phase 13's
+  `visit`, `ifvisit`, `return`, `pack`, `unpack`. The control-flow grid is
+  (one-way | comes-back) x (always | if) and all four cells are filled.
 - Phase-8 palette: `PALETTE` entries `{kind:'value', make}` | `{kind:'op', op}` |
   `{kind:'stmt', make}` (Phase 9).
+- Nine jsdom suites, 517 asserts total; `test-call.js` (98) covers Phase 13 + 13b.
 - jsdom suites alongside the html: `test-phase8.js` (28 asserts) and
   `test-phase9.js` (63 asserts, incl. panel fold/reorder, help popovers, menu parity, nemesis, Phase-10 chip choosers). Both must stay green; phase-8's T1/T2
   count `.proto:not(.stmt-tile)` (**32** today: 1 num + 8 vars + 8 sensors +
@@ -195,8 +199,13 @@ substitute behind. Corollaries the whole codebase leans on:
   Drag a comparison hexagon from the shelf onto a condition → it REPLACES the
   sensor there (which retreats to the spares). Its two operands are normal number
   slots — drop a variable on one, wrap it in +, tap to retype it.
-- Tap a chip → repoint the reference: flagref = retarget, flag = rename,
-  assign LHS = pick variable, despawn sprite = pick sprite, edge = pick edge.
+- Tap a chip → repoint the reference: flagref = retarget (a VISIT's too),
+  flag = rename, assign/unpack LHS = pick variable, despawn sprite = pick
+  sprite, edge = pick edge.
+- Phase 13: drag in `visit ⚑x` (goes and remembers), `return` (comes back),
+  `pack ⟨expr⟩` (parcel onto the back of the belt), `unpack into ⟨var⟩` (front
+  parcel off it). A visit's rope is dashed; return has none, because where it
+  goes is data. Bookmark tokens in the right gutter are the live call stack.
 - Drag a sprite PILL onto any sprite slot (inside isTouching / an edge test /
   `x of` / `is alive`). Tap a pill → pick another sprite. Tap "x of" → x or y.
 - Drag palette prototype → ghost copy: drop on compatible slot (replace; old piece
@@ -430,128 +439,202 @@ Staged migration (protect the 90 green asserts - NO big-bang):
   `node test-phase9.js`, `node test-drop.js`); the last is the exhaustive
   payload x target verb-map + acceptance-gate table test (33 asserts).
 
-## Phase 13 — SPEC ONLY, not yet built: visits (calls), the bookmark stack, the parcel belt
-Decisions locked with Patrick (2026-07-28): dequeue is a STATEMENT (not an
-expression leaf), every empty/broken case is a CONFUSED HALT, vocabulary is the
-app's metaphor voice, and this section is the spec to build from.
+## Phase 13 — visits (calls), the bookmark stack, the parcel belt — DONE
+A flag was a PLACE. It is a TOOL now: `visit ⚑x` goes there and remembers the
+way back, `return` takes it, and a global FIFO belt carries values in both
+directions. Built exactly to the spec agreed beforehand; the decisions and the
+roads not taken are kept below because they are the interesting part.
 
-**Vocabulary map** (doc-internal CS names in parens): `visit ⚑` (call),
-`return` (kept as-is — it is also the plain-English word for going back),
-bookmark stack (call stack), `pack` / `unpack into ⟨var⟩` (enqueue/dequeue),
-the conveyor belt (FIFO value queue). One belt serves BOTH directions:
-arguments are packed before the visit, results packed before the return —
-a "call" is a protocol the learner assembles (pack · visit · unpack), not an
-atomic thing the language does for them.
-(The backpack also owns `pack` in code identifiers — a non-issue per
-Patrick; the backpack may be renamed in the UI anyway. The node TYPE string
-`'pack'` is safe regardless.)
+**Vocabulary** (CS name in parens): `visit ⚑` (call) · `return` · the bookmark
+pile (call stack) · `pack ⟨expr⟩` / `unpack into ⟨var⟩` (enqueue/dequeue) ·
+the belt (FIFO queue). One belt serves BOTH directions — arguments packed
+before the visit, results packed before the return. **A call is a protocol the
+learner assembles (pack · visit · unpack), not an atomic thing the language
+does for them.**
 
-### The four statements (all shelf material, Phase-9 machinery unchanged)
-- **`visit{target}`** — jumps like `goto` AND drops a bookmark for the way
-  back. Same flagref chip, same `bindJumpTarget` on drop, same retarget
-  chooser, same frayed-dangle rules. Shelf proto ships `target:'?'`.
-- **`return{}`** (node type `'return'` — a string, so no keyword clash) —
-  pops the NEWEST bookmark; pc goes to the row after the call.
-  **Deliberately chipless and wireless:** its destination is DATA (top
-  of stack), not syntax — that absence is the lesson, so do not draw a static
-  wire for it. (A transient runtime arc when it fires is fine polish.)
-- **`pack{expr}`** — one ordinary number slot (full expression material:
-  swap/wrap/tap-edit free via slotReg), evaluates, parcel joins the BACK of
-  the belt. /0 inside refuses the pack exactly as `execAssign` refuses the
-  write (`{divZero}`; `collectDivZero`/`subtreeHas` must walk `pack.expr`).
-- **`unpack{target}`** — pops the FRONT parcel into a variable; LHS chip via the
-  existing `tgt-chip` chooser idiom. Dequeue happens exactly ONCE, in
-  `execStmt` — this is WHY it is a statement: `bubbleExpr` evaluates
-  expressions a second time for the thought bubble, so an impure
-  "next parcel" leaf would dequeue twice. Expressions stay pure. (Rejected
-  alternative recorded: an expression leaf + per-statement memo layer.)
+### The four statements
+- **`visit{target}`** — sets `jumpTo`, and that ONE line is why it inherited
+  everything: wires, the holder scan, rename-as-refactor, `bindJumpTarget`,
+  the retarget chooser, the frayed-dangle rendering, the nemesis. Its rope is
+  dashed (`path.call`) — a trip you come back from.
+- **`return{}`** — **chipless and wireless on purpose.** Where it goes is DATA
+  (the top bookmark), not syntax, so there is nothing static to draw and that
+  absence is the lesson. Kind `'return'`, no `jumpTo`, so `drawWires` skips it
+  without a special case.
+- **`pack{expr}`** — one ordinary number slot, so drag/swap/wrap/tap-edit all
+  work inside it for free; `isFocusable` grew a third case and `.block.pack`
+  got the socket hues assign/check already had. A `/0` refuses the pack exactly
+  as it refuses a write. `scanDivZero` needed NO change — it already walks any
+  statement's `.expr`.
+- **`unpack{target}`** — LHS `tgt-chip`, so the Phase-10 chooser served it with
+  a one-line title change. **Dequeue happens exactly once, in `execStmt` —
+  this is why it is a statement and not an expression leaf.** `bubbleExpr`
+  re-evaluates expressions to draw the thought bubble, so an impure
+  "next parcel" leaf would pop twice per row. Expressions stay pure.
 
-### Control flow (technical strategy)
-- **`nextPc` stays the single source of truth.** Extend the result contract:
-  `{visit:name}` → resolve label (dangle → `'lost'` as today), push a
-  bookmark, set pc; `{ret:true}` → pop, resolve, set pc. execStmt only
-  REPORTS; nextPc DECIDES — same split as today.
-- **A bookmark stores the call statement NODE, not a row index.** The program
-  is editable mid-run (reorder/delete) and jumps already re-resolve names on
-  every hop; a stored index would silently rot. On hop back:
-  `program.indexOf(node)`; found → pc = that+1 (mod length); gone → the
-  bookmark DANGLES and Beep halts confused ("my bookmark is gone!"). This
-  extends the Phase-9 amendment (structure always valid, REFERENCES may
-  dangle) to runtime references — one rule, third instance.
-- **All failure surfaces are the confused halt** (pc parks on the row, every
-  run mode stops, bug stays steppable — mirrors `beepConfused` /
-  `beepConfusedDivide`, probably one parameterized helper by now):
-  return on empty stack · unpack from empty belt · return to a deleted call
-  row · visit a lost flag (existing path) · **stack overflow: cap ~12**, a
-  13th visit halts him — recursion works day one, so stack overflow becomes a
-  watchable, teachable failure instead of a hang.
-- **State:** `callStack=[]`, `belt=[]` (numbers). Reset empties both and
-  clears their DOM. `pack.expr` needs `_initialExpr`-style snapshot coverage
-  (the Reset = deep-clone-snapshot invariant); `programSeed`/`cloneStmt`
-  already deep-clone statements generically — verify `expr` is walked.
-- **Registries:** `KIND_FOR` +2 kinds (visit can likely reuse `jump`; `return`
-  wants its own so wires skip it), `mk()` branches, `renderStmt`/`nodeHtml`
-  cases, 4 shelf protos (phase-8 T1/T2 UNaffected — they count
-  `.proto:not(.stmt-tile)`; any stmt-proto count asserts in phase-9 bump
-  7→11). `DROP_TABLE`/`accepts` untouched: stmt payloads already exist —
-  Stage 1+2 pay off again.
-- **Wires:** visit wires render like jump wires but visually distinct
-  (dashed). `drawWires` already early-outs on lost refs.
+### Control flow
+- **`nextPc` is still the only thing that moves pc.** `execStmt` reports
+  `{visit:name}` / `{ret:true}`; `nextPc` resolves, pushes/pops, and returns a
+  destination index, `null`, or a STRING failure code. Same report/decide split
+  the jump path always had.
+- **Bookmarks store the call statement NODE, never a row index.** The program
+  is editable mid-run; an index rots silently, a node keeps pointing at the row
+  you can still see and drag. `program.indexOf(call)` resolves LATE, on every
+  return. Deleting that row makes the bookmark DANGLE — the Phase-9 amendment
+  (structure always valid, REFERENCES may dangle) applied to a runtime
+  reference, third instance of the same rule. **The mutation test proves this
+  matters: swapping node→index crashes the suite outright.**
+- **One halt surface, five doors into it.** `beepStuck(msg)` is the factored
+  body (`beepConfused` / `beepConfusedDivide` are now thin wrappers). A
+  `STUCK` map turns nextPc's failure code into Beep's bubble via `haltCode`;
+  a mid-statement failure rides `result.stuck` beside `result.divZero`. In
+  every case **pc parks on the offending row** so the bug stays steppable:
+  return with no bookmark · unpack from an empty belt · return to a deleted
+  call row · visit a lost flag · **more than `CALL_MAX` (12) open visits.**
+  Recursion works day one, so the cap turns stack overflow from a hang into a
+  watchable, teachable failure.
+- **State:** `callStack` (of nodes), `belt` (of numbers). Reset empties both.
 
-### Visuals
-- **Bookmark tokens in the program gutter:** one token pinned at each
-  bookmark's RETURN row (call row + 1), stacking with a count when calls
-  nest/recurse. Redraw whenever the stack or program changes (piggyback on
-  `drawWires`' schedule). The pile IS the call stack, live.
-- **The conveyor belt: its own side panel** (between backpack and new
-  pieces). Parcels as small value tiles, front-of-queue marked (arrow),
-  pack/unpack animate a slide. The panel system (fold/reorder/persist/help
-  disc) picks it up automatically via `setupPanel`; NOTE phase-9 T12b asserts
-  **3** help discs — a `.tray-note` in this panel makes it 4; bump the assert.
+### Surfaces
+- **Bookmark tokens ride the right gutter**, pinned to each visit's RETURN row,
+  merged with a count when several share it (recursion). `renderMarks` is
+  called from `drawWires`, so every reorder/insert/delete re-pins them with no
+  extra wiring. A dangling bookmark draws nothing — there is no row to pin to.
+- **The belt is its own side panel** (between backpack and new pieces).
+  `renderBelt` paints `belt` directly; the front parcel is marked, a fresh one
+  animates in. The panel system picked it up automatically via `setupPanel` —
+  fold/reorder/persist/help disc, zero new code. **Help discs 3 → 4** and
+  **statement protos 7 → 11**; both counts asserted in `test-phase9` (updated).
+  Phase-8's T1/T2 were untouched as predicted (`.proto:not(.stmt-tile)`).
+- `DROP_TABLE` / `accepts` needed NO new rows: the `stmt` and `stmt-proto`
+  payloads already covered all four. Stage 1+2 of the unified drop model have
+  now paid for themselves twice (Phase 11b, Phase 13).
 
-### Pedagogy (why each piece is shaped this way)
-- **Reuse is the motivator:** two wall rows visiting ONE `bounce` routine is
-  the first program where a flag is a TOOL, not a place. (Seed program stays
-  untouched this phase; a demo migration is a separate decision.)
-- **Return address as data:** goto's arrow is drawn; return's isn't,
-  because it CAN'T be — where you go back to depends on where you came from.
-  The bookmark pile makes that data visible and countable.
-- **Calling conventions, honestly:** the belt forces both sides to AGREE on
-  count and order — in BOTH directions, since arguments and results ride the
-  same belt. Leftover parcels sit visibly (a bug you can see) and will
-  corrupt the NEXT call's arguments; unpacking too many halts confused (a bug
-  you can step into); a routine that packs a result before unpacking all its
-  arguments interleaves them — visible, not prevented, by design. FIFO chosen
-  over a second stack: parcels come off in the order packed, which is the
-  intuition kids already have about conveyor belts. (Recorded fallback if one
-  belt proves too cruel in practice: two belts, inbox/outbox.)
-- **One global belt, deliberately** (rejected: per-call frames). Frames are
-  invisible machinery; a single shared belt makes the failure modes the
-  curriculum.
+### Pedagogy, deliberately
+- **Return address as data:** a goto's arrow is drawn; a return's cannot be.
+  The bookmark pile is that invisible thing made countable.
+- **Calling conventions, honestly.** Both sides must agree on count and order,
+  in both directions, because one belt carries both. Leftovers sit visibly and
+  will corrupt the NEXT visit's arguments; unpacking too many halts him;
+  packing a result before unpacking all arguments interleaves them. All three
+  are visible, none are prevented. (Fallback if it proves too cruel: two belts,
+  inbox/outbox. Rejected for now — per-call frames are invisible machinery, and
+  the failure modes ARE the curriculum.)
+- **FIFO, not a second stack:** parcels come off in the order they went on,
+  which is what a child already believes about conveyor belts.
 
-### Deferred, recorded
-`ifvisit` (conditional call — only if it earns its place; `ifjump` over a
-visiting flag covers it meanwhile) · seed-program subroutine migration ·
-typed parcels (sprites/booleans on the belt — `unpack into` is number-only at
-first; the belt tiles would just inherit the type silhouettes) · expression
-'next parcel' leaf (rejected above).
+### Verification
+`test-call.js` — **72 asserts**: semantics through `stepInstant` over small
+programs installed by a new `window.__call` seam (round trip, LIFO nesting,
+FIFO belt, a full pack→visit→unpack→pack→return→unpack doubler); every halt
+surface incl. deleting the call row mid-visit; the belt and bookmark DOM; and
+real gestures for all four prototypes. **Mutation-tested 6/6:** LIFO→FIFO
+bookmarks, off-by-one return row, missing overflow cap, double dequeue,
+index-instead-of-node bookmarks, LIFO belt. All nine suites green (**491**).
 
-### Test plan (`test-call.js`)
-Semantics via `stepInstant` (visit/return round trip, nesting, recursion to
-the cap, FIFO order, pack-args → visit → unpack-results round trip incl. the
-leftover-parcel and interleave cases); gestures (shelf drop of each proto,
-fresh visit binds to nearest flag, retarget chooser on a visit, unpack's LHS
-chooser); every confused-halt case incl. deleting the call row mid-visit;
-Reset clears stack + belt; /0 inside a pack. Mutation-test the
-usual way (seed ~5 bugs: LIFO/FIFO swap, off-by-one return row, missing
-overflow cap, double dequeue, index-instead-of-node bookmark).
+### Still open in Phase 13
+- ~~The seed program does not use any of it~~ **and** ~~`ifvisit`~~ — both
+  addressed in Phase 13b below. `ifvisit` earned its place immediately: it was
+  the single thing blocking every candidate seed refactor.
+- **Typed parcels.** The belt is numbers-only. Sprites and booleans would need
+  `unpack` to know its target's type; the parcel tiles would just inherit the
+  existing type silhouettes.
+- **Clamping — a note that was WRONG when first written, kept as a correction.**
+  The claim was "unpack ignores the clamp an assign would honour". It cannot:
+  `clamp` is a per-STATEMENT field (`clamp:[0,100]`), present on exactly two
+  statements in the app (the two `nudgePaddle` rows), and there is no
+  variable-level clamp anywhere for `unpack` to read. A shelf-dropped `assign`
+  is equally unclamped, so `unpack` introduces no new hole:
+  `unpack into paddleX` with a huge parcel slides the paddle out of the
+  (overflow:hidden) stage and skips the `'at the edge!'` bubble, exactly as
+  `paddleX = 5000` does today.
+  **The real question underneath** is that TWO unrelated notions of range
+  coexist: the statement `clamp`, and `VAR_META` (`paddleX:{min:0,max:100}`,
+  `ballVelocityX:{min:-12,max:12}`) which today only configures the backpack's
+  number-input widget. The authoring UI knows paddleX lives in 0..100; the
+  interpreter does not. Unifying them = deciding whether the language has
+  BOUNDED VARIABLES at all (and whether hitting a bound is silent, a bubble, or
+  a halt). That is a phase-sized pedagogical decision, not an unpack fix.
+
+## Phase 13b — `ifvisit`, and the seed program on subroutines — DONE
+Phase 13 shipped an UNCONDITIONAL call into a program whose every branch is
+conditional, so nothing could actually use it. The grid was half-empty:
+
+|                          | always  | if        |
+|--------------------------|---------|-----------|
+| one-way (never comes back) | `goto`  | `ifjump`  |
+| visit (comes back)        | `visit` | `ifvisit` |
+
+- **`ifvisit{cond,target}` is `ifjump` with one word changed.** Same condition
+  slot, same `/0`-refuses-to-decide rule; a yes reports `{visit}` instead of
+  `{jump}`, so `nextPc` drops a bookmark. No new machinery in nextPc at all.
+- **Its KIND is `'check'`, not its own family.** First attempt gave it kind
+  `'ifvisit'` and THREE suites went red: `.block.check` means "a row that asks
+  a question" and phase-8/bool/compare all select conditional rows with it.
+  Coming back is a MODIFIER, so it is `.block.check.callrow` — sun like every
+  check (socket hues inherited for free), dashed like every visit, rope class
+  `cond call`. Kind = family; modifier = the twist.
+- **A REAL BUG the seed refactor flushed out:** `expectedType` keyed condition
+  slots on `s.parent.type === 'ifjump'`, so an `ifvisit`'s condition typed as
+  `'number'` and every boolean drop onto it was silently refused — no error
+  anywhere. Now keyed on `s.field === 'cond'`, so the NEXT conditional
+  statement cannot repeat it. Mutation-tested (reverting it reddens 15 asserts).
+
+### The seed program: the arrow handlers are subroutines now (36 → 35 rows)
+    ⚑ start
+    if ← isKeyPressed visit ⚑ goLeft      (was: jump goLeft)
+    if → isKeyPressed visit ⚑ goRight
+    paddle moveTo paddleX                  (the `⚑ move` label is GONE)
+    ...
+    ⚑ goLeft / paddleX = paddleX − 8 / return     (was: goto move)
+    ⚑ goRight / paddleX = paddleX + 8 / return
+The win is not the row count, it is that `goLeft` used to be a place you jumped
+INTO and then had to jump out of to a THIRD place, which needed a `⚑ move` label
+whose only job was to be landed on. As subroutines they hand control straight
+back: **one label and two gotos deleted, two returns added.** This is the first
+default program where a flag is a TOOL, not a place.
+- **Behaviour change, deliberate:** holding BOTH arrows now runs both nudges
+  (net zero) instead of letting ← silently win by jumping past the → test.
+  Fall-through after the call is the whole point of a call.
+- Verified against the pre-refactor build: bricks still all destroyed, paddle
+  still clamps to 0 and 100, zero escapes over 3000 steps, bookmark pile always
+  returns to 0 (no leaks).
+
+### Why the bounce/brick chain was NOT converted — measured, not guessed
+Its **mutual exclusion is load-bearing.** A one-way jump into a handler that
+ends `goto start` guarantees at most ONE handler runs per pass. Convert the
+callers to `ifvisit` and every MATCHING handler runs, so a ceiling bounce and a
+brick hit in the same pass flip `ballVelocityY` **twice** — a net no-op, and the
+ball sails through the ceiling. It is reachable, not theoretical: at the top the
+ball spans y 0..22 and the bricks 14..30, so an 8px overlap while x also
+overlaps a brick is an ordinary event. **Reproduced in a throwaway harness
+before deciding** (vY = −3 in, −3 out over a full pass). Fixing it properly
+means making the handlers idempotent or separating the axes — a physics
+decision, not a call-syntax one. The reasoning is also inline above
+`label('bounceX')` so nobody re-tries it blind.
+
+### The belt is still not in the seed, and that is honest
+Neither `pack` nor `unpack` earns a place yet. The two arrow handlers differ by
+a CONSTANT (±8) that is cheaper to inline than to pass, and parameterising them
+would need a **scratch variable** — every backpack variable is load-bearing game
+state, so there is nowhere to unpack an argument INTO. The three brick hits are
+the refactor the belt was built for, and they are blocked on the belt being
+**numbers-only** (`despawn` still bakes a sprite name). Those two — scratch
+variables, and sprite parcels — are the real Phase 14 candidates.
+
+### Verification
+`test-call.js` grew to **98 asserts** (T19–T25 cover ifvisit: taken/not-taken,
+bookmark only on a yes, lost flag, the overflow cap through the ifvisit door,
+`/0` in the condition, the shelf drop + condition editing, and the `cond call`
+rope). **5/5 ifvisit mutants caught** — `{jump}` instead of `{visit}`, condition
+ignored, missing `/0` guard, the `expectedType` regression, and a lost `jumpTo`.
+All nine suites green: **517** asserts. Shelf protos 11 → 12.
 
 ## Open threads / next
 - ~~"Fill a slot with a variable"~~ solved by Phase 8: drag the variable's palette
   tile onto the number (the displaced number goes to the spares).
 - ~~Assign-target authoring~~, ~~despawn on the shelf~~, ~~label/jump
   authoring~~ — all landed in Phase 10 via the chip-tap rule.
-- **Phase 13 (visits/stack/belt) is SPECced above — build next.**
 - **Wire-endpoint dragging** (grab an arrowhead, drop it on another flag):
   lovely direct-manipulation polish, deferred (thin bezier hit targets).
 - **Auto-open** the fresh operand's editor after wrap? Currently flash-only.

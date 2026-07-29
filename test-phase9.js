@@ -63,7 +63,7 @@ function pev(type, x, y) {
 
   console.log('T1: statement shelf');
   const stmtProtos = paletteEl.querySelectorAll('.stmt-tile.proto');
-  ok(stmtProtos.length === 7, '7 statement prototypes, got ' + stmtProtos.length);
+  ok(stmtProtos.length === 12, '12 statement prototypes, got ' + stmtProtos.length);
   ok([...stmtProtos].some(t => /despawn/.test(t.textContent)), 'despawn is on the shelf (Phase 10)');
   ok([...stmtProtos].some(t => /paddleX/.test(t.textContent) && t.classList.contains('assign')),
      'identity assign on the shelf');
@@ -154,7 +154,7 @@ function pev(type, x, y) {
   // scope to the program: shelf jump prototypes are frayed BY DESIGN (bind on drop)
   ok(blocksBox.querySelector('.flagref.lost') === null, 'no frayed references remain in the program');
   ok(trayEl.children.length === 5, 'tray back to its 5 seed tiles');
-  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 7, 'statement shelf untouched');
+  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 12, 'statement shelf untouched');
 
   console.log('T11: a purely SIDEWAYS drag reaches the zones (activation fix)');
   // re-stub the tray at the same height as the grip press, so the drag has
@@ -196,7 +196,7 @@ function pev(type, x, y) {
 
   console.log('T12b: section notes live in help popovers');
   const helps = side.querySelectorAll('.panel-help');
-  ok(helps.length === 3, '3 help discs (stage, new pieces, spare tiles), got ' + helps.length);
+  ok(helps.length === 4, '4 help discs (stage, belt, new pieces, spare tiles), got ' + helps.length);
   ok(side.querySelector('.panel > .tray-note, .panel > .hint') === null, 'notes moved out of the panels');
   const disc = helps[0];
   disc.dispatchEvent(pev('pointerdown', 500, 20));
@@ -255,17 +255,17 @@ function pev(type, x, y) {
   await sleep(30);
   let pop15 = document.querySelector('.leaf-pop');
   ok(pop15 !== null && [...pop15.querySelectorAll('.opt')].length >= 8, 'retarget chooser lists the flags');
-  [...pop15.querySelectorAll('.opt')].find(o => o.textContent === '\u2691 move').dispatchEvent(click());
+  [...pop15.querySelectorAll('.opt')].find(o => o.textContent === '\u2691 bounceX').dispatchEvent(click());
   await sleep(30);
-  ok(/\u2691 move/.test(gotoRow.textContent), 'goto retargeted to move');
+  ok(/\u2691 bounceX/.test(gotoRow.textContent), 'goto retargeted to bounceX');
 
   const moveLabel = [...blocksBox.querySelectorAll(':scope > .block.labelrow')]
-    .find(el => /move/.test(el.textContent));
+    .find(el => /bounceX/.test(el.textContent));
   moveLabel.querySelector('.flag').dispatchEvent(click());
   await sleep(30);
   pop15 = document.querySelector('.leaf-pop');
   const rn = pop15 && pop15.querySelector('input');
-  ok(rn !== null && rn.value === 'move', 'rename editor opens with the current name');
+  ok(rn !== null && rn.value === 'bounceX', 'rename editor opens with the current name');
   rn.value = 'groove';
   rn.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   await sleep(30);

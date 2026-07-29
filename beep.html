@@ -51,6 +51,7 @@
   #wires > path{stroke:var(--coral); stroke-width:2; fill:none; stroke-linecap:round; opacity:.28}
   #wires > path.rope-hi{opacity:.95; stroke-width:2.5}   /* the dragged block's connections */
   #wires > path.zing{opacity:1; stroke-width:3.5; animation:zing .7s ease}
+  #wires > path.call{stroke-dasharray:7 5}   /* a visit comes back; its rope says so */
   @keyframes zing{0%{opacity:.28; stroke-width:2} 25%{opacity:1; stroke-width:4} 100%{opacity:1; stroke-width:3.5}}
   .block{
     border-radius:11px; padding:6px 12px 6px 6px; font-family:'Fredoka',sans-serif;
@@ -208,6 +209,13 @@
   }
   .block.check .pred.socket{ background:rgba(255,201,77,.85); }
   .block.check .pred.socket .pred-in{ background:rgba(255,201,77,.34); box-shadow:inset 0 2px 4px rgba(138,91,0,.20); }
+  /* teal hue inside pack blocks (Phase 13) - same socket idiom, its own colour */
+  .block.pack .token.socket, .block.pack .group.socket{
+    background:rgba(43,179,154,.20); border-color:rgba(43,179,154,.60);
+    box-shadow:inset 0 2px 4px rgba(14,107,91,.22);
+  }
+  .block.pack .pred.socket{ background:rgba(43,179,154,.65); }
+  .block.pack .pred.socket .pred-in{ background:rgba(43,179,154,.22); box-shadow:inset 0 2px 4px rgba(14,107,91,.22); }
   .block.focused{ box-shadow:0 0 0 2px var(--purple); z-index:4; }
   .tray{
     display:flex; gap:8px; flex-wrap:wrap; align-content:flex-start; align-items:center;
@@ -264,6 +272,11 @@
   .stmt-tile.action{ background:var(--teal-soft); color:var(--teal-deep); }
   .stmt-tile.check{ background:var(--sun-soft); color:var(--sun-deep); }
   .stmt-tile.jump{ background:var(--coral-soft); color:var(--coral-deep); }
+  .stmt-tile.visit{ background:var(--coral-soft); color:var(--coral-deep); border-style:dashed; }
+  .stmt-tile.check.callrow{ border-style:dashed; }
+  .stmt-tile.return{ background:var(--coral-soft); color:var(--coral-deep); }
+  .stmt-tile.pack{ background:var(--teal-soft); color:var(--teal-deep); }
+  .stmt-tile.unpack{ background:var(--purple-soft); color:var(--purple-deep); }
   .stmt-tile.label{ background:#fff; color:var(--ink); }
   .stmt-tile .chip, .stmt-tile .flagref{
     background:rgba(255,255,255,.75); border-radius:6px; padding:0 5px;
@@ -377,6 +390,17 @@
   .block.action{background:var(--teal-soft); color:var(--teal-deep)}
   .block.check{background:var(--sun-soft); color:var(--sun-deep)}
   .block.jump{background:var(--coral-soft); color:var(--coral-deep)}
+  /* Phase 13: visit/return are control flow (coral, like jump); pack/unpack move
+     values (teal out, purple in - unpack writes a variable, so it reads assign-ish). */
+  .block.visit{background:var(--coral-soft); color:var(--coral-deep); border-color:rgba(184,73,45,.35); border-style:dashed}
+  /* ifvisit asks a question (so it IS a .check - sun, and it inherits every
+     check's socket hue) but it comes back, which is the dashed edge every visit
+     wears. The silhouette says both halves; the kind says which family it is. */
+  .block.check.callrow{ border-color:rgba(138,91,0,.35); border-style:dashed }
+  .block.return{background:var(--coral-soft); color:var(--coral-deep)}
+  .block.pack{background:var(--teal-soft); color:var(--teal-deep)}
+  .block.unpack{background:var(--purple-soft); color:var(--purple-deep)}
+  .ret-arrow{ font-weight:700; margin-right:2px; }
   .block.labelrow{background:transparent; padding:4px 0 0 6px}
   .block.labelrow .flag{
     display:inline-flex; align-items:center; gap:6px;
@@ -509,6 +533,36 @@
     background:rgba(255,255,255,.7); border-radius:8px; padding:1px 8px;
   }
 
+  /* ------- Phase 13: the parcel belt (one global FIFO) ------- */
+  .belt{
+    display:flex; gap:7px; flex-wrap:wrap; align-items:center; min-height:40px;
+    padding:9px; border-radius:12px; background:var(--paper);
+    border:2px dashed var(--line);
+  }
+  .parcel{
+    font-family:'Nunito',sans-serif; font-weight:700; font-size:13px;
+    background:#fff; color:var(--teal-deep); border:2px solid var(--teal);
+    border-radius:7px; padding:2px 10px; box-shadow:0 2px 0 rgba(14,107,91,.30);
+    position:relative;
+  }
+  .parcel.front::before{
+    content:'\u25B6'; position:absolute; left:-11px; top:50%; transform:translateY(-50%);
+    font-size:9px; color:var(--teal-deep); opacity:.75;
+  }
+  .parcel.just-in{ animation:parcelIn .32s ease; }
+  @keyframes parcelIn{ from{ transform:translateX(14px) scale(.7); opacity:0 } }
+  .belt-empty{ font-size:12.5px; color:var(--ink-soft); opacity:.7; padding-left:3px; }
+  /* bookmarks ride the RIGHT gutter, pinned to the row each visit will come
+     back to. The pile IS the call stack - countable, live. */
+  .bookmark{
+    position:absolute; right:-27px; width:19px; height:23px; z-index:3;
+    background:var(--coral); color:#fff;
+    font-family:'Nunito',sans-serif; font-weight:700; font-size:11px;
+    display:flex; align-items:flex-start; justify-content:center; padding-top:2px;
+    clip-path:polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+    box-shadow:0 2px 4px rgba(184,73,45,.35);
+  }
+
   /* ------- backpack ------- */
   .pack{display:flex; gap:8px; flex-wrap:wrap}
   .tile{
@@ -630,6 +684,12 @@
       <section class="panel">
         <h2>Beep's backpack</h2>
         <div class="pack" id="pack"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Parcel belt</h2>
+        <div class="belt" id="belt"></div>
+        <p class="tray-note">A <b>conveyor belt</b> for passing numbers around. <b>pack</b> puts a parcel on the <b>back</b>; <b>unpack</b> takes the one at the <b>front</b> and puts it in a backpack variable &mdash; first on, first off. Use it to hand values <b>to</b> a flag you <b>visit</b>, and to hand answers <b>back</b>. Both sides have to agree on how many parcels: leftovers sit here waiting to confuse the next visit, and unpacking from an <b>empty</b> belt stops Beep.</p>
       </section>
 
       <section class="panel">
@@ -1039,6 +1099,13 @@
       case 'ifjump':  return 'if ' + condHtml(node.cond) + ' jump to ' + flagref(node.target);
       case 'assign':  return tgtChip(node.target) + ' = ' + htmlExpr(node.expr);
       case 'command': return commandHtml(node);
+      // Phase 13. `return` is deliberately CHIPLESS: where it goes is data (the
+      // top bookmark), not syntax, and that absence is the lesson.
+      case 'visit':   return 'visit ' + flagref(node.target);
+      case 'ifvisit': return 'if ' + condHtml(node.cond) + ' visit ' + flagref(node.target);
+      case 'return':  return '<span class="ret-arrow">\u21A9</span> return';
+      case 'pack':    return 'pack ' + htmlExpr(node.expr) + ' onto the belt';
+      case 'unpack':  return 'unpack into ' + tgtChip(node.target);
     }
     return '';
   }
@@ -1059,6 +1126,21 @@
       }
       case 'assign': return execAssign(node);
       case 'command':return execCommand(node);
+      // Phase 13: visit/return only REPORT what they want; nextPc decides and
+      // owns the bookmark stack, exactly as it already owns jump resolution.
+      case 'visit':  return { bubble:'off to \u2691 '+node.target+' \u2014 back soon!', visit:node.target };
+      /* ifvisit is ifjump with ONE word changed: same condition, same /0 rule,
+         but a yes reports {visit} instead of {jump}, so nextPc drops a bookmark.
+         The 2x2 grid (one-way | comes-back) x (always | if) is closed now. */
+      case 'ifvisit': {
+        const yes = evalExpr(node.cond);
+        if (divByZero) return { divZero:true };
+        if (yes) return { bubble:'yes \u2192 off to \u2691 '+node.target+'!', visit:node.target };
+        return { bubble: condNoBubble(node.cond) };
+      }
+      case 'return': return { bubble:'back I go!', ret:true };
+      case 'pack':   return execPack(node);
+      case 'unpack': return execUnpack(node);
     }
     return { bubble:'' };
   }
@@ -1073,6 +1155,26 @@
     if (node.clamp && v === old) return { bubble:'at the edge!', flash:node.target };
     return { bubble: shown + ' = ' + v, flash:node.target };
   }
+  /* The belt is FIFO and GLOBAL: arguments ride it into a visit, results ride
+     it back out. Dequeue lives HERE, in a statement, and not in an expression
+     leaf - bubbleExpr re-evaluates expressions to draw the thought bubble, so
+     an impure "next parcel" leaf would pop twice per row. */
+  function execPack(node){
+    const shown = bubbleExpr(node.expr);      // operand values BEFORE anything moves
+    divByZero = false;
+    const val = evalExpr(node.expr);
+    if (divByZero) return { divZero:true };   // a /0 refuses the pack, as it refuses a write
+    belt.push(val);
+    renderBelt('in');
+    return { bubble: shown + ' \u2192 onto the belt' };
+  }
+  function execUnpack(node){
+    if (!belt.length) return { stuck:'the belt is empty \u2014 nothing to unpack!' };
+    const val = belt.shift();
+    state[node.target] = val;
+    renderBelt('out');
+    return { bubble:'parcel '+val+' \u2192 '+node.target, flash:node.target };
+  }
   function execCommand(node){
     if (node.name === 'movePaddle'){ moveTo('paddle'); return { bubble:'scoot!' }; }
     if (node.name === 'moveBall'){   moveTo('ball');   return { bubble:'wheee!' }; }
@@ -1080,10 +1182,16 @@
   }
 
   // wrap a statement node with the fields the interpreter/renderer expect
-  const KIND_FOR = { label:'label', goto:'jump', ifjump:'check', assign:'assign', command:'action' };
+  const KIND_FOR = { label:'label', goto:'jump', ifjump:'check', assign:'assign', command:'action',
+                     visit:'visit', return:'return', pack:'pack', unpack:'unpack',
+                     ifvisit:'check' };   // it ASKS A QUESTION; coming back is a modifier (.callrow)
   function mk(node){
     node.kind = KIND_FOR[node.type];
-    if (node.type === 'goto' || node.type === 'ifjump') node.jumpTo = node.target;
+    // jumpTo is THE marker for "this row references a flag": wires, the holder
+    // scan, rename-as-refactor and bindJumpTarget all key off it, so a visit
+    // inherits every one of them by setting it. `return` deliberately does not.
+    if (node.type === 'goto' || node.type === 'ifjump' || node.type === 'visit'
+        || node.type === 'ifvisit') node.jumpTo = node.target;
     node.exec = function(){ return execStmt(node); };
     return node;
   }
@@ -1091,8 +1199,16 @@
   /* ---------- block builders (thin wrappers over the AST) ---------- */
   function label(name){ return mk({ type:'label', name:name }); }
   function goto_(name){ return mk({ type:'goto', target:name }); }
+  function visit_(name){ return mk({ type:'visit', target:name }); }
+  function ifVisit(cond, name){ return mk({ type:'ifvisit', cond:cond, target:name }); }
+  function return_(){ return mk({ type:'return' }); }
+  function pack_(expr){ return mk({ type:'pack', expr:expr }); }
+  function unpack_(name){ return mk({ type:'unpack', target:name }); }
   function ifKeyJump(arrow, keyName, name){
     return mk({ type:'ifjump', cond: keyCond(keyName, arrow), target:name });
+  }
+  function ifKeyVisit(arrow, keyName, name){
+    return mk({ type:'ifvisit', cond: keyCond(keyName, arrow), target:name });
   }
   function ifTouchJump(what, name){
     return mk({ type:'ifjump', cond: touchOf(sprite('ball'), sprite(what)), target:name });
@@ -1136,6 +1252,11 @@
   function cloneStmt(b){
     if (b.type === 'label')  return mk({ type:'label', name:b.name });
     if (b.type === 'goto')   return mk({ type:'goto', target:b.target });
+    if (b.type === 'visit')  return mk({ type:'visit', target:b.target });
+    if (b.type === 'ifvisit') return mk({ type:'ifvisit', cond:cloneNode(b.cond), target:b.target });
+    if (b.type === 'return') return mk({ type:'return' });
+    if (b.type === 'pack')   return mk({ type:'pack', expr:cloneNode(b.expr) });
+    if (b.type === 'unpack') return mk({ type:'unpack', target:b.target });
     if (b.type === 'ifjump') return mk({ type:'ifjump', cond:cloneNode(b.cond), target:b.target });
     if (b.type === 'assign'){
       const n = { type:'assign', target:b.target, expr:cloneNode(b.expr) };
@@ -1158,9 +1279,14 @@
   /* ---------- the program ---------- */
   const program = [
     label('start'),
-    ifKeyJump('←','ArrowLeft','goLeft'),
-    ifKeyJump('→','ArrowRight','goRight'),
-    label('move'),
+    /* Phase 13b: the arrow handlers are SUBROUTINES. They used to be places you
+       jumped INTO and then had to jump out of to a third place (`goto move`),
+       which needed a `move` label whose only job was to be landed on. As visits
+       they hand control straight back here, so the label and both gotos are
+       gone. Holding both arrows now nudges twice (net zero) instead of letting
+       left silently win - fall-through is the whole point of a call. */
+    ifKeyVisit('←','ArrowLeft','goLeft'),
+    ifKeyVisit('→','ArrowRight','goRight'),
     movePaddle(),
     addAssign('ballX','ballX','ballVelocityX'),
     addAssign('ballY','ballY','ballVelocityY'),
@@ -1175,12 +1301,22 @@
 
     label('goLeft'),
     nudgePaddle(-1),
-    goto_('move'),
+    return_(),
 
     label('goRight'),
     nudgePaddle(+1),
-    goto_('move'),
+    return_(),
 
+    /* The bounce/brick chain stays one-way ON PURPOSE, and this is not timidity:
+       its MUTUAL EXCLUSION is load-bearing. A one-way jump to a handler that
+       ends `goto start` guarantees at most ONE handler runs per pass. Convert
+       the callers to ifvisits and every matching handler runs, so a ceiling
+       bounce and a brick hit in the same pass flip ballVelocityY TWICE - a net
+       no-op, and the ball sails through the ceiling. It is reachable: at the
+       top the ball spans y 0..22 and the bricks 14..30, so an 8px overlap while
+       x also overlaps a brick is an ordinary event. Measured, not guessed.
+       Fixing it properly needs the handlers to be idempotent or the axes to be
+       separated - a physics decision, not a call-syntax one. */
     label('bounceX'),
     flipVelocity('ballVelocityX'),
     goto_('start'),
@@ -1279,7 +1415,8 @@
   // drag; the content area is left free for future sub-block interactions.
   function buildBlock(b, beforeEl){
     const el = document.createElement('div');
-    el.className = 'block ' + (b.kind === 'label' ? 'labelrow' : b.kind);
+    el.className = 'block ' + (b.kind === 'label' ? 'labelrow' : b.kind)
+                 + (b.type === 'ifvisit' ? ' callrow' : '');
 
     const grip = document.createElement('div');
     grip.className = 'grip';
@@ -1304,6 +1441,8 @@
     if (b.jumpTo !== undefined){
       const p = document.createElementNS(SVGNS, 'path');
       if (b.kind === 'check') p.setAttribute('class', 'cond');
+      if (b.kind === 'visit') p.setAttribute('class', 'call');
+      if (b.type === 'ifvisit') p.setAttribute('class', 'cond call');   // both at once
       p.setAttribute('marker-end', 'url(#arrow)');
       wires.appendChild(p);
       b.wireEl = p;
@@ -1330,6 +1469,42 @@
     VARS.forEach(function(k){
       const inp = document.getElementById('val-' + k);
       if (inp && inp !== document.activeElement) inp.value = state[k];   // don't fight active typing
+    });
+  }
+  /* ---------- Phase 13 surfaces: the belt and the bookmark pile ----------
+     Both are pure functions of state (belt / callStack), redrawn whenever
+     either changes. renderMarks piggybacks on drawWires so any program edit -
+     reorder, delete, insert - re-pins the tokens with no extra wiring. */
+  const beltEl = document.getElementById('belt');
+  function renderBelt(moved){
+    if (!beltEl) return;
+    if (!belt.length){ beltEl.innerHTML = '<span class="belt-empty">nothing on the belt</span>'; return; }
+    beltEl.innerHTML = belt.map(function(val, i){
+      return '<span class="parcel'+(i === 0 ? ' front' : '')+'">'+val+'</span>';
+    }).join('');
+    if (moved === 'in') beltEl.lastChild.classList.add('just-in');
+  }
+  function renderMarks(){
+    if (!blocksBox) return;
+    blocksBox.querySelectorAll('.bookmark').forEach(function(el){ el.remove(); });
+    if (!callStack.length) return;
+    // several bookmarks can share a return row (recursion): one token, with a count
+    const rows = [], counts = [];
+    callStack.forEach(function(call){
+      const ci = program.indexOf(call);
+      if (ci === -1) return;                       // dangling bookmark: nothing to pin it to
+      const row = program[(ci + 1) % program.length];
+      const k = rows.indexOf(row);
+      if (k === -1){ rows.push(row); counts.push(1); } else counts[k]++;
+    });
+    rows.forEach(function(row, k){
+      if (!row.el) return;
+      const t = document.createElement('div');
+      t.className = 'bookmark';
+      t.textContent = counts[k] > 1 ? counts[k] : '';
+      t.title = counts[k] > 1 ? counts[k] + ' visits come back here' : 'a visit comes back here';
+      t.style.top = (row.el.offsetTop + 3) + 'px';
+      blocksBox.appendChild(t);
     });
   }
   function flashTile(name){
@@ -1405,6 +1580,7 @@
       }
       b.wireEl.setAttribute('d', d);
     });
+    renderMarks();          // rows moved: re-pin the bookmark tokens
   }
   function wireZing(b){
     if (!b || !b.wireEl) return;
@@ -1421,6 +1597,14 @@
 
   /* ---------- interpreter ---------- */
   let pc = 0;               // which program row Beep will do next
+  /* Phase 13. The bookmark stack holds call statement NODES, never row indices:
+     the program is editable mid-run, so an index would silently rot while a
+     node keeps pointing at the row the learner can still see and drag. If that
+     row is deleted the bookmark DANGLES - the Phase-9 amendment (structure
+     always valid, REFERENCES may dangle) applied to a runtime reference. */
+  const CALL_MAX = 12;      // recursion works day one; overflow must be watchable, not a hang
+  let callStack = [];       // of call NODES
+  let belt = [];            // FIFO of numbers - arguments in, results out
   let busy = false;         // an animated step is in flight
   let mode = 'idle';        // idle | play
   let timer = null;
@@ -1457,6 +1641,25 @@
   // advanced to the next row. This is the single source of truth for control
   // flow, shared by all three run modes.
   function nextPc(fromIndex, result){
+    if (result.visit !== undefined){
+      const t = labelIndex(result.visit);
+      if (t === -1){ pc = fromIndex; return 'lost'; }                  // same dangle rule as a jump
+      if (callStack.length >= CALL_MAX){ pc = fromIndex; return 'overflow'; }
+      callStack.push(program[fromIndex]);
+      renderMarks();
+      pc = t;
+      return t;
+    }
+    if (result.ret){
+      if (!callStack.length){ pc = fromIndex; return 'nostack'; }
+      const call = callStack[callStack.length - 1];
+      const ci = program.indexOf(call);                                // resolve LATE, every time
+      if (ci === -1){ pc = fromIndex; return 'lostmark'; }             // its row was deleted mid-visit
+      callStack.pop();
+      renderMarks();
+      pc = (ci + 1) % program.length;                                  // the row AFTER the call
+      return pc;
+    }
     if (result.jump !== undefined){
       const t = labelIndex(result.jump);
       if (t === -1){ pc = fromIndex; return 'lost'; }   // dangling: stay put
@@ -1469,13 +1672,30 @@
   // Phase 9: the flag is gone. Beep stops where he is, puzzles, and every run
   // mode ends. pc stays ON the jump line - the bug is still there to step into,
   // which is exactly the point.
-  function beepConfused(flagName){
+  function beepStuck(msg){
     stopAll();
     robot.classList.remove('walking');
     robot.classList.remove('leaping');
     robot.classList.add('confused');
-    showBubble('⚑ ' + flagName + '? where did it go??');
+    showBubble(msg);
     setTimeout(function(){ robot.classList.remove('confused'); }, 1600);
+  }
+  function beepConfused(flagName){
+    beepStuck('⚑ ' + flagName + '? where did it go??');
+  }
+  /* Every Phase-13 failure is the SAME surface: pc parks on the row, every run
+     mode stops, the bug stays steppable. nextPc reports a string code instead
+     of a destination; `haltCode` turns it into Beep's puzzled bubble. */
+  const STUCK = {
+    lost:     function(r){ return '\u2691 ' + (r.jump !== undefined ? r.jump : r.visit) + '? where did it go??'; },
+    nostack:  function(){ return 'back to where? I have no bookmark!'; },
+    lostmark: function(){ return 'my bookmark\u2026 that row is gone!'; },
+    overflow: function(){ return 'too many visits at once! I have lost track'; }
+  };
+  function haltCode(t, result){
+    if (typeof t !== 'string') return false;
+    beepStuck(STUCK[t](result));
+    return true;
   }
   // Beep reaches a live divide-by-zero: he stops, baffled, exactly like a lost
   // jump. The callers return BEFORE nextPc, so pc stays on the offending row.
@@ -1546,15 +1766,14 @@
   function finishPhase(step, done){
     hideBubble();
     highlight(-1);
-    if (step.result.divZero){
-      beepConfusedDivide();
+    if (step.result.divZero || step.result.stuck){
+      if (step.result.stuck) beepStuck(step.result.stuck); else beepConfusedDivide();
       busy = false; current = null;
       if (done) done();
       return;                                   // pc stays on the broken statement
     }
     const t = nextPc(step.i, step.result);
-    if (t === 'lost'){
-      beepConfused(step.result.jump);
+    if (haltCode(t, step.result)){
       busy = false; current = null;
       if (done) done();
       return;
@@ -1593,8 +1812,8 @@
     }
     hideBubble();
     highlight(-1);
-    if (step.result && step.result.divZero){
-      beepConfusedDivide();
+    if (step.result && (step.result.divZero || step.result.stuck)){
+      if (step.result.stuck) beepStuck(step.result.stuck); else beepConfusedDivide();
       robot.classList.remove('walking'); robot.classList.remove('leaping');
       busy = false; current = null;
       return;                                   // pc stays on the broken statement
@@ -1603,8 +1822,7 @@
       flagPulse(pc);                     // pc already resolved before the leap animation
     } else {
       const t = nextPc(step.i, step.result);
-      if (t === 'lost') beepConfused(step.result.jump);
-      else if (t !== null){ wireZing(program[step.i]); flagPulse(t); }
+      if (!haltCode(t, step.result) && t !== null){ wireZing(program[step.i]); flagPulse(t); }
     }
     robot.classList.remove('walking');
     robot.classList.remove('leaping');
@@ -1623,8 +1841,9 @@
     const r = b.exec();
     renderPack();
     if (r.divZero){ beepConfusedDivide(); return; }   // pc stays on the broken statement
+    if (r.stuck){ beepStuck(r.stuck); return; }
     const t = nextPc(i, r);
-    if (t === 'lost'){ beepConfused(r.jump); return; }
+    if (haltCode(t, r)) return;
     if (t !== null){ wireZing(b); flagPulse(t); }
   }
 
@@ -1674,6 +1893,8 @@
     if (current){ current.timers.forEach(clearTimeout); current = null; }
     VARS.forEach(function(k){ state[k] = START[k]; });
     respawnAll();
+    callStack = []; belt = [];        // Phase 13: a run's memory dies with the run
+    renderBelt(); renderMarks();
     pc = 0; busy = false;
     hideBubble(); highlight(-1);
     renderPack(); moveTo('ball'); moveTo('paddle'); placeBricks();
@@ -1856,7 +2077,9 @@
   let focusedBlock = null;
   let suppressClick = false;
 
-  function isFocusable(b){ return b.type === 'assign' || b.type === 'ifjump'; }
+  function isFocusable(b){
+    return b.type === 'assign' || b.type === 'ifjump' || b.type === 'pack' || b.type === 'ifvisit';
+  }
 
   // --- slot registry: rebuilt on every render of the focused stmt + tray ---
   // A slot is a position {parent, field}; the node there is parent[field].
@@ -1871,7 +2094,11 @@
   function expectedType(id){
     const s = slotReg[id];
     if (Array.isArray(s.parent)) return typeOf(s.parent[s.field]);
-    if (s.parent.type === 'ifjump' && s.field === 'cond') return 'boolean';
+    // ANY statement's `cond` field is boolean-typed - keep this keyed on the
+    // FIELD, not on a list of statement types, or the next conditional
+    // statement silently gets number-typed conditions (ifvisit did, and every
+    // boolean drop onto it was refused with no error anywhere).
+    if (s.field === 'cond') return 'boolean';
     // a bin's operands are typed by its operation: `+` wants numbers, `and` wants
     // booleans. (in === out for every bin op, so this also equals typeOf the bin.)
     if (s.parent.type === 'bin'){ const o = opSig(s.parent.op); return o ? o.in : 'number'; }
@@ -1976,6 +2203,10 @@
   function focusedHtml(b){
     if (b.type === 'ifjump')
       return 'if ' + nodeHtml(b.cond, b, 'cond', false) + ' jump to ' + flagref(b.target);
+    if (b.type === 'ifvisit')
+      return 'if ' + nodeHtml(b.cond, b, 'cond', false) + ' visit ' + flagref(b.target);
+    if (b.type === 'pack')
+      return 'pack ' + nodeHtml(b.expr, b, 'expr', true) + ' onto the belt';
     return tgtChip(b.target) + ' = ' + nodeHtml(b.expr, b, 'expr', true);
   }
 
@@ -1990,7 +2221,8 @@
       // Phase 9: whole statements rest here too, as compact mini blocks. They
       // are NOT slots (no data-sl), so the swap machinery never sees them.
       if (KIND_FOR[node.type])
-        return '<span class="stmt-tile '+node.kind+'" data-st="'+i+'">'+renderStmt(node)+'</span>';
+        return '<span class="stmt-tile '+node.kind+(node.type === 'ifvisit' ? ' callrow' : '')
+             + '" data-st="'+i+'">'+renderStmt(node)+'</span>';
       return nodeHtml(node, trayNodes, i, false);
     }).join('');
     document.querySelectorAll('[data-sl]').forEach(function(el){
@@ -2442,6 +2674,36 @@
                     bin:bin, num:num, v:v,
                     divCheck:divCheck, execStmt:execStmt, stepInstant:stepInstant, state:state,
                     dividesByZero:function(node){ const set=new Set(); collectDivZero(node, set); return set.size > 0; } };
+  /* Phase 13 testing seam. Call semantics need a PROGRAM, not just an
+     expression, so `load` swaps in a small one the way a learner's edits would
+     (real blocks, real wires) and resets the run state with it. */
+  window.__call = {
+    CALL_MAX: CALL_MAX,
+    stack: function(){ return callStack; },
+    belt:  function(){ return belt; },
+    pc:    function(){ return pc; },
+    build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_,
+             label:label, goto_:goto_, num:num, v:v, bin:bin,
+             assign:function(t, e){ return mk({ type:'assign', target:t, expr:e }); } },
+    load: function(list){
+      program.forEach(function(b){
+        if (b.el) b.el.remove();
+        if (b.wireEl) b.wireEl.remove();
+      });
+      program.length = 0;
+      list.forEach(function(b){ program.push(b); buildBlock(b); });
+      callStack = []; belt = [];
+      pc = 0; busy = false;
+      renderBelt(); drawWires(); robotToBlock(0);
+    },
+    dropRow: function(i){                       // delete a row behind Beep's back
+      const b = program[i];
+      if (b.el) b.el.remove();
+      if (b.wireEl) b.wireEl.remove();
+      program.splice(i, 1);
+      drawWires();
+    }
+  };
   function opsFor(node){
     const id = slotIdOf(node);
     const inT = typeOf(node);
@@ -2901,6 +3163,11 @@
     stmtProto(function(){ return movePaddle(); });
     stmtProto(function(){ return moveBall(); });
     stmtProto(function(){ return despawn_('brick1'); });
+    stmtProto(function(){ return visit_('?'); });
+    stmtProto(function(){ return ifVisit(keyCond('ArrowLeft','\u2190'), '?'); });
+    stmtProto(function(){ return return_(); });
+    stmtProto(function(){ return pack_(num(0)); });     // 0 = the honest blank, as cmp seeds its operands
+    stmtProto(function(){ return unpack_('paddleX'); });
   })();
 
   /* ---------- Phase 9: statements are material too ----------
@@ -3329,7 +3596,7 @@
   }
   function openLhsPop(b, anchorEl){
     const pop = openPop(anchorEl);
-    popTitle(pop, 'put the result into');
+    popTitle(pop, b.type === 'unpack' ? 'unpack the parcel into' : 'put the result into');
     const grid = popGrid(pop);
     VARS.forEach(function(name){
       optButton(grid, name, name === b.target, function(){
@@ -3626,6 +3893,7 @@
   window.addEventListener('resize', layout);
   VARS.forEach(function(k){ state[k] = START[k]; });
   buildPack();
+  renderBelt();
   renderSlots();
   renderPack(); layout(); robotToBlock(0);
 })();
