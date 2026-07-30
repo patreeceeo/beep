@@ -277,6 +277,7 @@
   .stmt-tile.return{ background:var(--coral-soft); color:var(--coral-deep); }
   .stmt-tile.pack{ background:var(--teal-soft); color:var(--teal-deep); }
   .stmt-tile.unpack{ background:var(--purple-soft); color:var(--purple-deep); }
+  .stmt-tile.note{ background:var(--purple-soft); color:var(--purple-deep); }
   .stmt-tile.label{ background:#fff; color:var(--ink); }
   .stmt-tile .chip, .stmt-tile .flagref{
     background:rgba(255,255,255,.75); border-radius:6px; padding:0 5px;
@@ -400,6 +401,10 @@
   .block.return{background:var(--coral-soft); color:var(--coral-deep)}
   .block.pack{background:var(--teal-soft); color:var(--teal-deep)}
   .block.unpack{background:var(--purple-soft); color:var(--purple-deep)}
+  /* `new note` DECLARES - it is the only statement that makes a name exist, so
+     it reads as assign-family (purple) with a solid left rule to say "here". */
+  .block.note{background:var(--purple-soft); color:var(--purple-deep);
+              box-shadow:inset 3px 0 0 var(--purple)}
   .ret-arrow{ font-weight:700; margin-right:2px; }
   .block.labelrow{background:transparent; padding:4px 0 0 6px}
   .block.labelrow .flag{
@@ -533,12 +538,49 @@
     background:rgba(255,255,255,.7); border-radius:8px; padding:1px 8px;
   }
 
-  /* ------- Phase 13: the parcel belt (one global FIFO) ------- */
-  .belt{
-    display:flex; gap:7px; flex-wrap:wrap; align-items:center; min-height:40px;
-    padding:9px; border-radius:12px; background:var(--paper);
-    border:2px dashed var(--line);
+  /* ------- Phase 14: the backpack is a STACK OF POUCHES ------- */
+  .stack-tools{ display:flex; gap:6px; margin-bottom:8px; }
+  .viewbtn{
+    font-family:'Fredoka',sans-serif; font-size:12px; font-weight:500;
+    border:2px solid var(--line); background:#fff; color:var(--ink-soft);
+    border-radius:9px; padding:3px 10px; cursor:pointer;
   }
+  .viewbtn.on{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .stack{ display:flex; flex-direction:column; gap:7px; }
+  .pouch{
+    border:2px solid var(--line); border-radius:12px; padding:8px 9px;
+    background:var(--paper); transition:background .2s, border-color .2s;
+  }
+  .pouch.top{ border-color:var(--coral); background:#fff; }
+  .pouch.world{ border-color:var(--teal); background:#fff; }
+  /* the open pouch: half-open, because it is not a place Beep IS - it is the
+     pouch he is filling for the trip he has not taken yet */
+  .pouch.ghost{
+    border-style:dashed; background:transparent; opacity:.85;
+    border-color:rgba(46,42,59,.28);
+  }
+  .pouch-head{ display:flex; align-items:center; gap:7px; margin-bottom:6px; }
+  .pouch-open{ font-size:11.5px; color:var(--ink-soft); font-style:italic; }
+  .pouch-world{ font-size:11.5px; font-weight:700; letter-spacing:.04em;
+                text-transform:uppercase; color:var(--teal-deep); }
+  .ret-chip{
+    margin-left:auto; font-size:12px; color:var(--coral-deep);
+    background:var(--coral-soft); border-radius:7px; padding:0 7px; cursor:pointer;
+  }
+  .notes, .parcels{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .notes{ margin-bottom:6px; }
+  .notes.empty, .parcels.empty{ font-size:11.5px; color:var(--ink-soft); opacity:.6; }
+  .tile.ro{ padding:4px 9px; min-width:0; }
+  .tile.ro .ro-val{ font-family:'Fredoka',sans-serif; font-weight:600; font-size:15px; }
+  .tile.shadowed{ opacity:.45; }
+  .tile.shadowed .name, .tile.shadowed .ro-val{ text-decoration:line-through; }
+  .reach{ display:flex; flex-direction:column; gap:3px; }
+  .reach-row{ display:flex; align-items:center; gap:8px; font-size:12.5px;
+              padding:3px 8px; border-radius:8px; background:var(--paper); }
+  .reach-row.shadowed{ opacity:.42; text-decoration:line-through; }
+  .reach-name{ font-weight:700; flex:1; }
+  .reach-val{ font-family:'Fredoka',sans-serif; font-weight:600; }
+  .reach-from{ font-size:11px; color:var(--ink-soft); min-width:64px; text-align:right; }
   .parcel{
     font-family:'Nunito',sans-serif; font-weight:700; font-size:13px;
     background:#fff; color:var(--teal-deep); border:2px solid var(--teal);
@@ -551,7 +593,6 @@
   }
   .parcel.just-in{ animation:parcelIn .32s ease; }
   @keyframes parcelIn{ from{ transform:translateX(14px) scale(.7); opacity:0 } }
-  .belt-empty{ font-size:12.5px; color:var(--ink-soft); opacity:.7; padding-left:3px; }
   /* bookmarks ride the RIGHT gutter, pinned to the row each visit will come
      back to. The pile IS the call stack - countable, live. */
   .bookmark{
@@ -683,13 +724,12 @@
 
       <section class="panel">
         <h2>Beep's backpack</h2>
-        <div class="pack" id="pack"></div>
-      </section>
-
-      <section class="panel">
-        <h2>Parcel belt</h2>
-        <div class="belt" id="belt"></div>
-        <p class="tray-note">A <b>conveyor belt</b> for passing numbers around. <b>pack</b> puts a parcel on the <b>back</b>; <b>unpack</b> takes the one at the <b>front</b> and puts it in a backpack variable &mdash; first on, first off. Use it to hand values <b>to</b> a flag you <b>visit</b>, and to hand answers <b>back</b>. Both sides have to agree on how many parcels: leftovers sit here waiting to confuse the next visit, and unpacking from an <b>empty</b> belt stops Beep.</p>
+        <div class="stack-tools">
+          <button class="viewbtn on" id="viewPile" type="button">this pouch</button>
+          <button class="viewbtn" id="viewReach" type="button">all in reach</button>
+        </div>
+        <div class="stack" id="stack"></div>
+        <p class="tray-note">Beep's backpack is a <b>stack of pouches</b>. The bottom one is <b>the world</b> &mdash; the numbers that run the game. Every <b>visit</b> adds a pouch on top and every <b>return</b> takes one away, so a pouch is <b>where Beep is, what he knows there, and where he goes back to</b>. Numbers inside a pouch are <b>notes</b>. When Beep looks up a name he checks his own pouch first, then the ones below, then the world &mdash; and writing works the same way, so a note keeps living wherever it already is. Want your <b>own</b> copy? Use <b>new note</b>. The <b>ghost pouch</b> on top is what you are <b>packing for the next visit</b>: <b>pack</b> puts a parcel in it, <b>visit</b> carries it along, and <b>unpack</b> takes parcels out of the pouch you are in. Whatever a visit packs and does not unpack comes <b>back</b> to whoever called it.</p>
       </section>
 
       <section class="panel">
@@ -988,7 +1028,7 @@
   function evalExpr(e){
     switch(e.type){
       case 'num':   return e.value;
-      case 'var':   return state[e.name];
+      case 'var':   return readVar(e.name);
       case 'bool':  return e.value;
       case 'not':   return !evalExpr(e.operand);
       // a sprite VALUE is its name; the bridges read the world through it
@@ -1055,7 +1095,7 @@
   function bubbleExpr(e, nested){
     switch(e.type){
       case 'num': return valStr(e.value);
-      case 'var': return valStr(state[e.name]);
+      case 'var': { const pv = peekVar(e.name); return pv === undefined ? '?' : valStr(pv); }
       case 'bin': { const s = bubbleExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + bubbleExpr(e.right, true);
                     return nested ? '(' + s + ')' : s; }
       case 'cmp': { const s = bubbleExpr(e.left) + ' ' + cmpGlyph(e.op) + ' ' + bubbleExpr(e.right);
@@ -1104,8 +1144,9 @@
       case 'visit':   return 'visit ' + flagref(node.target);
       case 'ifvisit': return 'if ' + condHtml(node.cond) + ' visit ' + flagref(node.target);
       case 'return':  return '<span class="ret-arrow">\u21A9</span> return';
-      case 'pack':    return 'pack ' + htmlExpr(node.expr) + ' onto the belt';
+      case 'pack':    return 'pack ' + htmlExpr(node.expr) + ' for the visit';
       case 'unpack':  return 'unpack into ' + tgtChip(node.target);
+      case 'note':    return 'new note <span class="chip note-chip">'+node.name+'</span>';
     }
     return '';
   }
@@ -1113,14 +1154,17 @@
   // run a statement -> { bubble, flash?, jump?, pause? } (same result shape as before)
   function execStmt(node){
     divByZero = false;               // cleared per statement; evalExpr sets it on a /0
+    lostVar = null;                  // ditto: readVar sets it when a name is nowhere
     switch(node.type){
       case 'label':  return { bubble:'⚑ '+node.name, pause:400 };
       case 'goto':   return { bubble:'wheee → ⚑ '+node.target+'!', jump:node.target };
       case 'ifjump': {
+        lostVar = null;
         const yes = evalExpr(node.cond);
         // a /0 hiding inside a comparison is the same ERROR it is in an assign:
         // refuse to decide, and let the caller halt Beep on this row
         if (divByZero) return { divZero:true };
+        if (lostVar) return { stuck: noNoteMsg(lostVar) };
         if (yes) return { bubble:'yes → ⚑ '+node.target+'!', jump:node.target };
         return { bubble: condNoBubble(node.cond) };
       }
@@ -1133,47 +1177,73 @@
          but a yes reports {visit} instead of {jump}, so nextPc drops a bookmark.
          The 2x2 grid (one-way | comes-back) x (always | if) is closed now. */
       case 'ifvisit': {
+        lostVar = null;
         const yes = evalExpr(node.cond);
         if (divByZero) return { divZero:true };
+        if (lostVar) return { stuck: noNoteMsg(lostVar) };
         if (yes) return { bubble:'yes \u2192 off to \u2691 '+node.target+'!', visit:node.target };
         return { bubble: condNoBubble(node.cond) };
       }
       case 'return': return { bubble:'back I go!', ret:true };
       case 'pack':   return execPack(node);
       case 'unpack': return execUnpack(node);
+      case 'note':   return execNote(node);
     }
     return { bubble:'' };
   }
   function execAssign(node){
-    const old   = state[node.target];
+    const old   = peekVar(node.target);
     const shown = bubbleExpr(node.expr);      // capture operand values BEFORE the write
-    divByZero = false;                        // (re)clear right before the real evaluation
+    divByZero = false; lostVar = null;        // (re)clear right before the real evaluation
     let v = evalExpr(node.expr);
     if (divByZero) return { divZero:true, flash:node.target };   // /0: refuse the write; Beep will halt
+    if (lostVar) return { stuck: noNoteMsg(lostVar) };           // read a name nobody has
     if (node.clamp) v = Math.min(Math.max(v, node.clamp[0]), node.clamp[1]);
-    state[node.target] = v;
+    writeVar(node.target, v);                 // write-through: wherever that name lives
+    renderStack();
     if (node.clamp && v === old) return { bubble:'at the edge!', flash:node.target };
     return { bubble: shown + ' = ' + v, flash:node.target };
   }
-  /* The belt is FIFO and GLOBAL: arguments ride it into a visit, results ride
-     it back out. Dequeue lives HERE, in a statement, and not in an expression
-     leaf - bubbleExpr re-evaluates expressions to draw the thought bubble, so
-     an impure "next parcel" leaf would pop twice per row. */
+  /* Parcels are FIFO and live IN POUCHES (Phase 14). Dequeue lives HERE, in a
+     statement, and not in an expression leaf - bubbleExpr re-evaluates
+     expressions to draw the thought bubble, so an impure "next parcel" leaf
+     would pop twice per row. */
+  function noNoteMsg(name){ return 'a note called ' + name + '? I do not have one!'; }
+  /* pack fills the OPEN pouch (the one the next visit will take); unpack takes
+     from the ACTIVE pouch (what this visit was handed, plus what came back to
+     it). Two verbs, two sentences, no cases. */
   function execPack(node){
     const shown = bubbleExpr(node.expr);      // operand values BEFORE anything moves
-    divByZero = false;
+    divByZero = false; lostVar = null;
     const val = evalExpr(node.expr);
     if (divByZero) return { divZero:true };   // a /0 refuses the pack, as it refuses a write
-    belt.push(val);
-    renderBelt('in');
-    return { bubble: shown + ' \u2192 onto the belt' };
+    if (lostVar) return { stuck: noNoteMsg(lostVar) };
+    open.parcels.push(val);
+    renderStack('in');
+    return { bubble: shown + ' \u2192 packed for the next visit' };
   }
   function execUnpack(node){
-    if (!belt.length) return { stuck:'the belt is empty \u2014 nothing to unpack!' };
-    const val = belt.shift();
-    state[node.target] = val;
-    renderBelt('out');
-    return { bubble:'parcel '+val+' \u2192 '+node.target, flash:node.target };
+    const mine = activePouch().parcels;
+    if (!mine.length) return { stuck:'my pouch is empty \u2014 nothing to unpack!' };
+    const val = mine.shift();
+    const where = writeVar(node.target, val);
+    renderStack('out');
+    return { bubble:'parcel '+val+' \u2192 '+node.target
+                 + (where !== activePouch() && where !== worldPouch ? ' (down the pile!)' : ''),
+             flash:node.target };
+  }
+  /* `new note n` - the ONLY way to shadow. It declares in THIS pouch even when
+     the name lives below; without it, recursion's write-through would have
+     every depth clobbering one shared note. World names are refused (the
+     authoring validator never offers them; this guard is the belt and braces). */
+  function execNote(node){
+    if (VARS.indexOf(node.name) !== -1)
+      return { bubble: node.name + ' belongs to the world - I cannot make my own' };
+    const top = activePouch();
+    if (has(top.notes, node.name)) return { bubble:'I already have a note called ' + node.name };
+    top.notes[node.name] = 0;
+    renderStack();
+    return { bubble:'a fresh note: ' + node.name + ' = 0', flash:node.name };
   }
   function execCommand(node){
     if (node.name === 'movePaddle'){ moveTo('paddle'); return { bubble:'scoot!' }; }
@@ -1184,7 +1254,8 @@
   // wrap a statement node with the fields the interpreter/renderer expect
   const KIND_FOR = { label:'label', goto:'jump', ifjump:'check', assign:'assign', command:'action',
                      visit:'visit', return:'return', pack:'pack', unpack:'unpack',
-                     ifvisit:'check' };   // it ASKS A QUESTION; coming back is a modifier (.callrow)
+                     ifvisit:'check',     // it ASKS A QUESTION; coming back is a modifier (.callrow)
+                     note:'note' };
   function mk(node){
     node.kind = KIND_FOR[node.type];
     // jumpTo is THE marker for "this row references a flag": wires, the holder
@@ -1204,6 +1275,7 @@
   function return_(){ return mk({ type:'return' }); }
   function pack_(expr){ return mk({ type:'pack', expr:expr }); }
   function unpack_(name){ return mk({ type:'unpack', target:name }); }
+  function note_(name){ return mk({ type:'note', name:name }); }
   function ifKeyJump(arrow, keyName, name){
     return mk({ type:'ifjump', cond: keyCond(keyName, arrow), target:name });
   }
@@ -1257,6 +1329,7 @@
     if (b.type === 'return') return mk({ type:'return' });
     if (b.type === 'pack')   return mk({ type:'pack', expr:cloneNode(b.expr) });
     if (b.type === 'unpack') return mk({ type:'unpack', target:b.target });
+    if (b.type === 'note')   return mk({ type:'note', name:b.name });
     if (b.type === 'ifjump') return mk({ type:'ifjump', cond:cloneNode(b.cond), target:b.target });
     if (b.type === 'assign'){
       const n = { type:'assign', target:b.target, expr:cloneNode(b.expr) };
@@ -1266,6 +1339,20 @@
     const c = { type:'command', name:b.name };
     if (b.sprite !== undefined) c.sprite = b.sprite;
     return mk(c);
+  }
+  /* Phase 14: note names follow the flag rules (letters/digits, <=12, and
+     never a world name - the world's eight are not shadowable). */
+  function validNoteName(n){
+    return /^[A-Za-z][A-Za-z0-9]*$/.test(n) && n.length <= 12 && VARS.indexOf(n) === -1;
+  }
+  function uniqueNoteName(){
+    let k = 1, n = 'note';
+    const taken = function(x){
+      if (VARS.indexOf(x) !== -1) return true;
+      return program.some(function(b){ return b.type === 'note' && b.name === x; });
+    };
+    while (taken(n)) n = 'note' + (++k);
+    return n;
   }
   // fresh flag names: strip a trailing number, count up until unused
   function uniqueLabelName(base){
@@ -1454,44 +1541,106 @@
   /* ---------- rendering helpers ---------- */
   // Build one editable tile per backpack variable: a native number input with
   // the variable's own min / max / step.
-  function buildPack(){
-    const pack = document.getElementById('pack');
-    pack.innerHTML = VARS.map(function(k){
-      const m = metaOf(k);
-      return '<div class="tile" id="tile-'+k+'">'
-           +   '<div class="name">'+k+'</div>'
-           +   '<input class="val" id="val-'+k+'" data-var="'+k+'" type="number" inputmode="numeric" '
-           +     'min="'+m.min+'" max="'+m.max+'" step="'+m.step+'" value="0" aria-label="'+k+'">'
-           + '</div>';
-    }).join('');
-  }
+  function buildPack(){ renderStack(); }      // the world card is built BY the stack now
   function renderPack(){
+    // the world's inputs are live DOM; update values in place so typing is not
+    // interrupted, and only rebuild when a pouch's SHAPE changed (renderStack)
     VARS.forEach(function(k){
       const inp = document.getElementById('val-' + k);
-      if (inp && inp !== document.activeElement) inp.value = state[k];   // don't fight active typing
+      if (inp && inp !== document.activeElement) inp.value = state[k];
     });
   }
-  /* ---------- Phase 13 surfaces: the belt and the bookmark pile ----------
-     Both are pure functions of state (belt / callStack), redrawn whenever
-     either changes. renderMarks piggybacks on drawWires so any program edit -
+  /* ---------- the pouch stack and the bookmark pile ----------
+     Both are pure functions of `pouches` / `open`, redrawn whenever either
+     changes. renderMarks piggybacks on drawWires so any program edit -
      reorder, delete, insert - re-pins the tokens with no extra wiring. */
-  const beltEl = document.getElementById('belt');
-  function renderBelt(moved){
-    if (!beltEl) return;
-    if (!belt.length){ beltEl.innerHTML = '<span class="belt-empty">nothing on the belt</span>'; return; }
-    beltEl.innerHTML = belt.map(function(val, i){
-      return '<span class="parcel'+(i === 0 ? ' front' : '')+'">'+val+'</span>';
-    }).join('');
-    if (moved === 'in') beltEl.lastChild.classList.add('just-in');
+  /* ---- the backpack panel IS the visit stack ----
+     Newest pouch on top, the world pinned at the bottom, and the OPEN pouch as
+     a half-open ghost above everything: pack a parcel and you watch it land in
+     the card the next visit will carry. Two views: "this pouch" (the pile) and
+     "all in reach" (one merged list showing what each name means RIGHT NOW),
+     which is the dynamic-scope lesson in a single glance. */
+  const stackEl = document.getElementById('stack');
+  let stackView = 'pile';                       // 'pile' | 'reach'
+  function parcelStrip(list, moved){
+    if (!list.length) return '<div class="parcels empty">no parcels</div>';
+    return '<div class="parcels">' + list.map(function(v, i){
+      return '<span class="parcel'+(i === 0 ? ' front' : '')
+           + (moved === 'in' && i === list.length - 1 ? ' just-in' : '')+'">'+v+'</span>';
+    }).join('') + '</div>';
+  }
+  function noteTiles(pouch, live, hidden){
+    const names = Object.keys(pouch.notes);
+    if (!names.length) return '<div class="notes empty">no notes</div>';
+    return '<div class="notes">' + names.map(function(k){
+      const shadowed = hidden && hidden.indexOf(k) !== -1;
+      const m = metaOf(k);
+      const val = pouch.notes[k];
+      if (live) return '<div class="tile" id="tile-'+k+'">'
+                     +   '<div class="name">'+k+'</div>'
+                     +   '<input class="val" id="val-'+k+'" data-var="'+k+'" type="number" '
+                     +     'inputmode="numeric" min="'+m.min+'" max="'+m.max+'" step="'+m.step+'" '
+                     +     'value="'+val+'" aria-label="'+k+'">'
+                     + '</div>';
+      return '<div class="tile ro'+(shadowed ? ' shadowed' : '')+'">'
+           +   '<div class="name">'+k+'</div><div class="ro-val">'+valStr(val)+'</div></div>';
+    }).join('') + '</div>';
+  }
+  function pouchTitle(pouch){
+    if (!pouch.label) return '<span class="pouch-world">the world</span>';
+    const gone = program.indexOf(pouch.label) === -1;
+    return '<span class="flag'+(gone ? ' lost' : '')+'">\u2691 '+(gone ? '?' : pouch.label.name)+'</span>';
+  }
+  function renderStack(moved){
+    if (!stackEl) return;
+    let html = '';
+    if (stackView === 'reach'){
+      // one merged list: nearest pouch wins, the rest are struck through
+      const seen = [];
+      const rows = [];
+      for (let i = pouches.length - 1; i >= 0; i--){
+        Object.keys(pouches[i].notes).forEach(function(k){
+          const dup = seen.indexOf(k) !== -1;
+          seen.push(k);
+          rows.push('<div class="reach-row'+(dup ? ' shadowed' : '')+'">'
+                  + '<span class="reach-name">'+k+'</span>'
+                  + '<span class="reach-val">'+valStr(pouches[i].notes[k])+'</span>'
+                  + '<span class="reach-from">'+(pouches[i].label ? '\u2691 '+pouches[i].label.name : 'world')+'</span>'
+                  + '</div>');
+        });
+      }
+      html = '<div class="reach">' + rows.join('') + '</div>';
+    } else {
+      html += '<div class="pouch ghost">'
+           +    '<div class="pouch-head"><span class="pouch-open">packing for the next visit</span></div>'
+           +    parcelStrip(open.parcels, moved)
+           +  '</div>';
+      for (let i = pouches.length - 1; i >= 0; i--){
+        const p = pouches[i], top = (i === pouches.length - 1), world = (i === 0);
+        // a name is shadowed here if a pouch ABOVE this one also holds it
+        const hidden = [];
+        Object.keys(p.notes).forEach(function(k){
+          for (let j = i + 1; j < pouches.length; j++) if (has(pouches[j].notes, k)) hidden.push(k);
+        });
+        html += '<div class="pouch'+(top ? ' top' : '')+(world ? ' world' : '')+'">'
+             +    '<div class="pouch-head">' + pouchTitle(p)
+             +      (p.ret ? '<span class="ret-chip" title="comes back here">\u21A9</span>' : '')
+             +    '</div>'
+             +    noteTiles(p, world, hidden)
+             +    parcelStrip(p.parcels, top ? moved : null)
+             +  '</div>';
+      }
+    }
+    stackEl.innerHTML = html;
   }
   function renderMarks(){
     if (!blocksBox) return;
     blocksBox.querySelectorAll('.bookmark').forEach(function(el){ el.remove(); });
-    if (!callStack.length) return;
+    if (pouches.length <= 1) return;
     // several bookmarks can share a return row (recursion): one token, with a count
     const rows = [], counts = [];
-    callStack.forEach(function(call){
-      const ci = program.indexOf(call);
+    pouches.slice(1).forEach(function(pouch){
+      const ci = program.indexOf(pouch.ret);
       if (ci === -1) return;                       // dangling bookmark: nothing to pin it to
       const row = program[(ci + 1) % program.length];
       const k = rows.indexOf(row);
@@ -1603,8 +1752,49 @@
      row is deleted the bookmark DANGLES - the Phase-9 amendment (structure
      always valid, REFERENCES may dangle) applied to a runtime reference. */
   const CALL_MAX = 12;      // recursion works day one; overflow must be watchable, not a hang
-  let callStack = [];       // of call NODES
-  let belt = [];            // FIFO of numbers - arguments in, results out
+  /* Phase 14 - THE VISIT STACK OF POUCHES.
+     A pouch = { label, ret, notes, parcels }: where Beep is, where he goes
+     back to, what he knows here, and what he is carrying. pouches[0] is THE
+     WORLD and its notes ARE `state` (same object identity), so every direct
+     state[...] read in the engine - sprite geometry, the backpack widget -
+     keeps working untouched.
+     The OPEN POUCH is the keystone (Patrick's design): a pouch cannot receive
+     arguments before it exists, so there is always one staged ABOVE the active
+     pouch. `pack` fills it; `visit` turns it INTO the call's pouch and stages
+     a fresh one. It is deliberately NOT in the array: that makes "invisible to
+     name resolution, exempt from CALL_MAX" true by construction. */
+  function makePouch(){ return { label:null, ret:null, notes:Object.create(null), parcels:[] }; }
+  const worldPouch = { label:null, ret:null, notes:state, parcels:[] };
+  let pouches = [worldPouch];
+  let open = makePouch();
+  function activePouch(){ return pouches[pouches.length - 1]; }
+  function has(obj, k){ return Object.prototype.hasOwnProperty.call(obj, k); }
+
+  /* ---- NAME RESOLUTION: one rule, every verb (Patrick's revision) ----
+     Names resolve DOWNWARD - top pouch, then each below, then the world - for
+     reads AND writes alike. A write goes to the pouch that already holds the
+     name (write-through, never an implicit shadow) and only CREATES when the
+     name exists nowhere. Shadowing is the explicit `new note` statement.
+     The open pouch is skipped: it is a parcel staging area, not a context. */
+  let lostVar = null;       // set by readVar; the divByZero idiom exactly
+  function pouchWith(name){
+    for (let i = pouches.length - 1; i >= 0; i--) if (has(pouches[i].notes, name)) return pouches[i];
+    return null;
+  }
+  function peekVar(name){                       // display only - never flags
+    const p = pouchWith(name);
+    return p ? p.notes[name] : undefined;
+  }
+  function readVar(name){
+    const p = pouchWith(name);
+    if (!p){ lostVar = name; return 0; }        // finite, so arithmetic stays sane until the halt
+    return p.notes[name];
+  }
+  function writeVar(name, val){                 // returns the pouch actually written
+    const p = pouchWith(name) || activePouch();
+    p.notes[name] = val;
+    return p;
+  }
   let busy = false;         // an animated step is in flight
   let mode = 'idle';        // idle | play
   let timer = null;
@@ -1644,19 +1834,29 @@
     if (result.visit !== undefined){
       const t = labelIndex(result.visit);
       if (t === -1){ pc = fromIndex; return 'lost'; }                  // same dangle rule as a jump
-      if (callStack.length >= CALL_MAX){ pc = fromIndex; return 'overflow'; }
-      callStack.push(program[fromIndex]);
-      renderMarks();
+      if (pouches.length - 1 >= CALL_MAX){ pc = fromIndex; return 'overflow'; }
+      // the OPEN pouch becomes this call's pouch: whatever was packed into it
+      // is already inside, which IS the argument-passing. A fresh one stages.
+      open.label = program[t];
+      open.ret   = program[fromIndex];
+      pouches.push(open);
+      open = makePouch();
+      renderStack(); renderMarks();
       pc = t;
       return t;
     }
     if (result.ret){
-      if (!callStack.length){ pc = fromIndex; return 'nostack'; }
-      const call = callStack[callStack.length - 1];
-      const ci = program.indexOf(call);                                // resolve LATE, every time
+      if (pouches.length <= 1){ pc = fromIndex; return 'nostack'; }    // the world never returns
+      const ci = program.indexOf(activePouch().ret);                   // resolve LATE, every time
       if (ci === -1){ pc = fromIndex; return 'lostmark'; }             // its row was deleted mid-visit
-      callStack.pop();
-      renderMarks();
+      // whatever this visit packed and never took anywhere ARE the results;
+      // its own pouch - unconsumed arguments and all - is discarded with it.
+      const results = open.parcels;
+      pouches.pop();
+      open = makePouch();
+      const caller = activePouch();
+      for (let k = 0; k < results.length; k++) caller.parcels.push(results[k]);
+      renderStack('in'); renderMarks();
       pc = (ci + 1) % program.length;                                  // the row AFTER the call
       return pc;
     }
@@ -1893,8 +2093,13 @@
     if (current){ current.timers.forEach(clearTimeout); current = null; }
     VARS.forEach(function(k){ state[k] = START[k]; });
     respawnAll();
-    callStack = []; belt = [];        // Phase 13: a run's memory dies with the run
-    renderBelt(); renderMarks();
+    // Phase 14: a run's memory dies with the run - every pouch above the world,
+    // every parcel, and any notes the program invented at top level
+    Object.keys(state).forEach(function(k){ if (VARS.indexOf(k) === -1) delete state[k]; });
+    worldPouch.parcels = [];
+    pouches = [worldPouch];
+    open = makePouch();
+    renderStack(); renderMarks();
     pc = 0; busy = false;
     hideBubble(); highlight(-1);
     renderPack(); moveTo('ball'); moveTo('paddle'); placeBricks();
@@ -1905,7 +2110,19 @@
     robotToBlock(0);
   });
 
-  const pack = document.getElementById('pack');
+  const pack = document.getElementById('stack');
+  (function(){
+    const pileBtn = document.getElementById('viewPile'), reachBtn = document.getElementById('viewReach');
+    if (!pileBtn) return;
+    function setView(v){
+      stackView = v;
+      pileBtn.classList.toggle('on', v === 'pile');
+      reachBtn.classList.toggle('on', v === 'reach');
+      renderStack();
+    }
+    pileBtn.addEventListener('click', function(){ setView('pile'); });
+    reachBtn.addEventListener('click', function(){ setView('reach'); });
+  })();
   function commitVar(inp){
     const name = inp.dataset.var, m = metaOf(name);
     if (inp.value === '' || inp.value === '-') return;   // allow a transient empty field
@@ -2206,7 +2423,7 @@
     if (b.type === 'ifvisit')
       return 'if ' + nodeHtml(b.cond, b, 'cond', false) + ' visit ' + flagref(b.target);
     if (b.type === 'pack')
-      return 'pack ' + nodeHtml(b.expr, b, 'expr', true) + ' onto the belt';
+      return 'pack ' + nodeHtml(b.expr, b, 'expr', true) + ' for the visit';
     return tgtChip(b.target) + ' = ' + nodeHtml(b.expr, b, 'expr', true);
   }
 
@@ -2679,10 +2896,16 @@
      (real blocks, real wires) and resets the run state with it. */
   window.__call = {
     CALL_MAX: CALL_MAX,
-    stack: function(){ return callStack; },
-    belt:  function(){ return belt; },
+    // depth-only view, so the Phase-13 style assertions still read naturally
+    stack: function(){ return pouches.slice(1); },
+    pouches: function(){ return pouches; },
+    open:  function(){ return open; },
+    mine:  function(){ return activePouch().parcels; },
+    notesOf: function(i){ return pouches[i].notes; },
+    setView: function(v){ stackView = v; renderStack(); },
     pc:    function(){ return pc; },
-    build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_,
+    build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_, note:note_,
+             ifjump:function(cond, name){ return mk({ type:'ifjump', cond:cond, target:name }); },
              label:label, goto_:goto_, num:num, v:v, bin:bin,
              assign:function(t, e){ return mk({ type:'assign', target:t, expr:e }); } },
     load: function(list){
@@ -2692,9 +2915,12 @@
       });
       program.length = 0;
       list.forEach(function(b){ program.push(b); buildBlock(b); });
-      callStack = []; belt = [];
+      Object.keys(state).forEach(function(k){ if (VARS.indexOf(k) === -1) delete state[k]; });
+      worldPouch.parcels = [];
+      pouches = [worldPouch];
+      open = makePouch();
       pc = 0; busy = false;
-      renderBelt(); drawWires(); robotToBlock(0);
+      renderStack(); drawWires(); robotToBlock(0);
     },
     dropRow: function(i){                       // delete a row behind Beep's back
       const b = program[i];
@@ -3168,6 +3394,7 @@
     stmtProto(function(){ return return_(); });
     stmtProto(function(){ return pack_(num(0)); });     // 0 = the honest blank, as cmp seeds its operands
     stmtProto(function(){ return unpack_('paddleX'); });
+    stmtProto(function(){ return note_(uniqueNoteName()); });
   })();
 
   /* ---------- Phase 9: statements are material too ----------
@@ -3594,18 +3821,47 @@
     });
     requestAnimationFrame(function(){ inp.focus(); inp.select(); });
   }
+  /* naming a note: the flag-rename editor, with the world's names refused -
+     `.bad` while invalid, and an invalid value quietly keeps the old name. */
+  function openNotePop(b, anchorEl){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'call this note');
+    const wrap = document.createElement('div'); wrap.className = 'name-edit';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'namefield'; inp.value = b.name; inp.maxLength = 12;
+    wrap.appendChild(inp); pop.appendChild(wrap);
+    function check(){ inp.classList.toggle('bad', !validNoteName(inp.value.trim())); }
+    inp.addEventListener('input', check);
+    inp.addEventListener('keydown', function(ev){
+      if (ev.key !== 'Enter') return;
+      const v = inp.value.trim();
+      if (validNoteName(v)) b.name = v;      // invalid: quietly keep the old one
+      cancelLeafPop();
+      refreshRow(b);
+    });
+    setTimeout(function(){ inp.focus(); inp.select(); }, 0);
+  }
   function openLhsPop(b, anchorEl){
     const pop = openPop(anchorEl);
     popTitle(pop, b.type === 'unpack' ? 'unpack the parcel into' : 'put the result into');
     const grid = popGrid(pop);
-    VARS.forEach(function(name){
+    const seen = [];
+    function offer(name){
+      if (seen.indexOf(name) !== -1) return;
+      seen.push(name);
       optButton(grid, name, name === b.target, function(){
         b.target = name;
         cancelLeafPop();
         refreshRow(b);
         flashTile(name);
       });
-    });
+    }
+    VARS.forEach(offer);
+    // Phase 14: every note currently in reach, nearest pouch first
+    for (let i = pouches.length - 1; i >= 0; i--) Object.keys(pouches[i].notes).forEach(offer);
+    // ...plus every note name the PROGRAM declares, so you can author a write
+    // to a note that does not exist yet (it will when the row runs)
+    program.forEach(function(o){ if (o.type === 'note') offer(o.name); });
   }
   function openSpritePop(b, anchorEl){
     const pop = openPop(anchorEl);
@@ -3622,7 +3878,7 @@
   // capture phase: a chip tap must never double as a focus toggle
   blocksBox.addEventListener('click', function(e){
     if (suppressClick) return;
-    const chipEl = e.target.closest ? e.target.closest('.flagref, .flag, .tgt-chip, .sprite-chip') : null;
+    const chipEl = e.target.closest ? e.target.closest('.flagref, .flag, .tgt-chip, .sprite-chip, .note-chip') : null;
     if (!chipEl) return;
     const rowEl = chipEl.closest('.block');
     if (!rowEl) return;
@@ -3633,6 +3889,7 @@
     if (chipEl.classList.contains('flagref')) return openFlagrefPop(b, chipEl);
     if (chipEl.classList.contains('flag'))    return openFlagPop(b, chipEl);
     if (chipEl.classList.contains('tgt-chip')) return openLhsPop(b, chipEl);
+    if (chipEl.classList.contains('note-chip')) return openNotePop(b, chipEl);
     if (chipEl.classList.contains('sprite-chip')) return openSpritePop(b, chipEl);
   }, true);
 
@@ -3893,7 +4150,6 @@
   window.addEventListener('resize', layout);
   VARS.forEach(function(k){ state[k] = START[k]; });
   buildPack();
-  renderBelt();
   renderSlots();
   renderPack(); layout(); robotToBlock(0);
 })();
