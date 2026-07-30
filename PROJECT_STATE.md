@@ -630,11 +630,223 @@ rope). **5/5 ifvisit mutants caught** — `{jump}` instead of `{visit}`, conditi
 ignored, missing `/0` guard, the `expectedType` regression, and a lost `jumpTo`.
 All nine suites green: **517** asserts. Shelf protos 11 → 12.
 
+## Phase 14 — SPEC ONLY, not yet built: the backpack becomes the visit stack
+**Terms, defined before use:** a **pouch** is one entry in the visit stack,
+drawn as a card in the backpack panel — every `visit` adds one, every `return`
+removes one, and the bottom pouch (pinned, never popped) is the world: today's
+backpack. A **note** is a variable living in a pouch; the eight game variables
+are simply the bottom pouch's notes. The **open pouch** is a special
+always-present pouch sitting above the active one, being packed for the NEXT
+visit — it has parcels but no label, no notes, no return-ref, and it is not a
+context Beep is ever IN (invisible to name resolution, exempt from CALL_MAX).
+With it, the conveyor-belt metaphor DISSOLVES: parcels simply sit in pouches,
+and pack/visit/unpack become one story — you pack a pouch, take it on a
+visit, unpack it when you arrive.
+
+Decisions locked with Patrick (2026-07-29, revised twice same day): each
+`visit` pushes a pouch and each `return` pops one; a pouch = **{ the label
+visited, a table of notes, a FIFO parcel queue, a reference to where to
+return to }**; names resolve DOWNWARD as if local (dynamic scope) for reads
+AND writes — **uniform write-through, no implicit shadowing** — with a UI
+toggle between "this pouch only" and "everything Beep can reach"; shadowing,
+when wanted, is an EXPLICIT new statement (a declaration); **arguments stage
+in an always-present OPEN POUCH that becomes the next visit's pouch**
+(Patrick's design — it replaced a belt-threading draft that was provably
+equivalent to Phase 13's global belt, i.e. bought no isolation at all); every
+failure stays a confused halt.
+
+### The frame record, field by field
+- **label visited** — store the label NODE (rename-as-refactor keeps the card
+  title live for free); render `⚑?` if the row is deleted mid-visit.
+- **notes (locals)** — a plain name→number table, born EMPTY. A note comes
+  into being two ways: a write whose name exists NOWHERE (created in the top
+  pouch), or the explicit `new note` declaration (below). Numbers only, as
+  the belt is.
+- **parcels** — the pouch's FIFO queue. Arguments arrive here (staged in the
+  open pouch before the visit); results are delivered here (by the callee's
+  return). See "The open pouch" below — this field is why the design works.
+- **return-ref** — the call statement NODE, never an index: the Phase-13
+  idiom, kept verbatim (mutation-proven; dangling bookmark = confused halt).
+- **Frame ZERO is the world.** `state` BECOMES `frames[0].locals` — same
+  object identity, so the 13 direct `state[...]` engine reads (moveTo,
+  spriteVel, sprite boxes, commitVar) never notice. The world card is pinned,
+  always-expanded, at the bottom of the panel; visit pouches stack above it.
+  `callStack` and the global `belt` dissolve into `frames`.
+
+### THE RESOLUTION RULE (the load-bearing design decision)
+**One rule, every verb, no exceptions** (Patrick's revision — it replaced an
+earlier draft that gave `unpack` a private write-into-the-top-pouch rule, and
+it is strictly better because the "world names are never shadowable" exception
+that draft needed simply EVAPORATES: writing `paddleX` from any pouch reaches
+the world because that is where the name lives):
+- **read** (`evalExpr` case `'var'`): top pouch → down the stack → the world.
+  Missing everywhere → `lostVar` flag (the `divByZero` idiom exactly), exec
+  refuses, Beep halts confused: "a note called n? I don't have one!" —
+  pc parks on the row.
+- **write** (`assign` AND `unpack`, identically): the NEAREST pouch holding
+  that name, top-down — write-through, never an implicit shadow. Name exists
+  NOWHERE → create a note in the top pouch (first write is creation; at the
+  bottom pouch this is how new top-level variables are born).
+- **`new note ⟨name⟩` — the explicit shadowing door** (a DECLARATION, the
+  thing real languages introduced for exactly this): creates the note in
+  THIS pouch even when the name exists below — that is its entire job —
+  seeded 0, a no-op if this pouch already has one, and it REFUSES world
+  names (statically; the chooser never offers them). Without it, naive
+  recursion shares one `n` — depth 2's unpack write-through CLOBBERS depth
+  1's note, and the stack UI makes that watchable (the write flashes the
+  card it actually landed in). The bug is the lesson; the declaration is the
+  fix the learner reaches for, one row, at the exact moment recursion
+  demands it.
+
+### The open pouch (argument staging — the design's keystone)
+The naive per-pouch queue has a hole Patrick caught: the callee's pouch does
+not EXIST until `visit` runs, so a prior `pack` could only land in the
+caller's own queue — no isolation, ever. The fix is an argument build area,
+which is exactly how real calling conventions work (push the arguments into
+the frame-to-be, THEN call):
+- **`pack e`** → appends to the OPEN pouch's parcels. Always. One rule.
+- **`visit ⚑f`** → the open pouch BECOMES the call's pouch (label + return-ref
+  stamped on, packed parcels already inside = the arguments); a fresh open
+  pouch appears above. `ifvisit` on a NO leaves the open pouch as staged —
+  visible, and consumed by whichever visit fires next.
+- **`unpack into v`** → pops the front of the ACTIVE pouch's parcels. Always.
+  One rule. (Arguments and delivered results both live there.)
+- **`return`** → the callee's OPEN pouch holds everything it packed and never
+  took anywhere: THE RESULTS. They are appended to the caller's pouch;
+  the callee's pouch — with any unconsumed arguments still visibly in it —
+  is discarded with the card. A fresh open pouch tops the stack.
+- The world's parcels are fed ONLY by returns (top-level packs stage for the
+  next top-level visit, like anywhere else).
+
+**This is a deliberate SEMANTIC BREAK from Phase 13** — enumerate it, don't
+paper over it: (a) `pack` then `unpack` in the same pouch no longer
+round-trips (the pack went upstairs; NOTES are the scratch tool now);
+(b) leftover arguments can no longer corrupt the next call — Phase 13's
+nastiest failure — they die with their pouch instead, on screen; (c) the
+Phase-13 call-suite tests (T2/T3/doubler et al.) get REWRITTEN to the new
+semantics, not preserved; the old equivalence claim is dead and replaced by
+isolation properties (a nested visit cannot see its caller's leftovers).
+**FIFO wrinkle, recorded:** unpack some arguments, visit, return, unpack
+again — the leftover argument comes off BEFORE the delivered result (both sit
+in your pouch, arrival order). Same count-agreement lesson as Phase 13, now
+localized to one visible card.
+The standalone "Parcel belt" panel DISSOLVES into the cards. (Panel count
+5→4, help discs 4→3: test-phase9 churn, listed below.)
+
+### UX
+- **The backpack panel IS the stack.** The OPEN pouch renders as a
+  half-open ghost card on top — parcels drop into it as you pack, which
+  answers "I packed it, where did it go?" by pointing at it. `visit` zips it:
+  the card gains its ⚑ title and ↩ return-ref and settles into the pile; a
+  fresh ghost fades in above. `return` slides the open pouch's parcels down
+  into the caller's card, then both callee cards leave (unconsumed arguments
+  visibly riding the discarded pouch out). The ↩ chip taps to flash the
+  return row — same bookmark as the gutter tokens; both stay (card =
+  inspector, gutter = spatial anchor).
+- **The toggle** (panel-head control, two states): **"this pouch"** = the
+  stacked cards as they are; **"all in reach"** = one merged list, each name
+  tinted by the pouch it resolves to, shadowed entries struck through. The
+  merged list answers "what does this name mean RIGHT NOW", which is the whole
+  dynamic-scope lesson in one view.
+- Note tiles on the TOP pouch are editable inputs (same as world tiles);
+  lower pouches render read-only and slightly grayed — visible, not live.
+- Deep piles: middle pouches collapse to slim ⚑-headers (tap to peek); the
+  world card never collapses. CALL_MAX (12) unchanged — the overflow halt now
+  has a teetering pile of cards behind it.
+- Choosers: the LHS/variable choosers gain a "notes in reach" section +
+  **"+ new note"** for authoring a fresh NAME on a chip (validation = the
+  flag-rename idiom; refuses world names). The `new note` STATEMENT is a
+  shelf prototype (12 → 13; its name chip taps to rename, same validator).
+  The expression PALETTE is untouched, so phase-8's shelf counts stay put.
+
+### Pedagogy
+- **The activation record — the hardest invisible thing in early CS — becomes
+  a physical pile of pouches.** "Where am I, what do I know here, where do I
+  go back to" is one card, and recursion is the same card printed N times
+  with different numbers in it.
+- **Factorial is writable the day this lands** (inexpressible in Phase 13 —
+  one shared n), and its two `new note` rows are load-bearing, not
+  ceremony — delete either and WATCH the clobber:
+      ⚑ start / pack 5 / visit factorial / unpack into ballX / goto done
+      ⚑ factorial / new note n / unpack into n
+      if n < 2 jump base
+      pack n − 1 / visit factorial / new note sub / unpack into sub
+      pack n × sub / return
+      ⚑ base / pack 1 / return
+      ⚑ done
+  Stepping it shows n=5,4,3,2 stacked LIVE, then the pouches unwind
+  multiplying on the way down. 11! fits both CALL_MAX and safe integers.
+- **The clobber demo is one deletion away:** remove `new note n` and depth 2
+  writes depth 1's card — visibly — and the answer comes out wrong. Silent
+  wrong answers are the worst failure everywhere else in this app; here the
+  stack UI turns this one into theater.
+- **Dynamic scope's spooky action is shown, not hidden:** an assign that
+  resolves to a lower pouch flashes THAT card — you watch a visit reach into
+  its caller's pocket. The toggle's merged view names the winner.
+- **Scope lifetime:** a popped note is GONE; a later read of its name is a
+  confused halt on a visible row. Top-level writes of new names create notes
+  in the world card — leakage is visible and inspectable, not an error.
+
+### Engineering
+- Representation: `pouches` (the active stack, world at index 0) + a
+  separate `open` object — keeping the open pouch OUT of the array spares
+  every resolver an off-by-one and makes "invisible to resolution" true by
+  construction rather than by filtering.
+- Touchpoints: `pouches`/`open` (replace `callStack` + `belt`); `evalExpr`
+  'var' + `lostVar` flag; `execAssign` / `execUnpack` write paths; `nextPc`
+  push/pop grows locals+belt bookkeeping (contract otherwise unchanged);
+  `renderPack` → `renderStack` (world card keeps `#pack`/`#belt`-compatible
+  hooks where cheap); choosers; Reset (`frames = [world]`, notes and belts
+  die with the run); `window.__call` seam exposes `frames()`.
+- `checkDivZeroEdit` evaluates divisors with edit-time lookup; a divisor
+  naming a note not currently in reach is UNKNOWABLE — skip the warning
+  rather than lie (note in code).
+- Predicted churn: test-phase9 panel/help-disc counts; test-call REWRITTEN
+  where it exercises pack/unpack (the semantic break above — T2/T3/doubler,
+  the leftover tests) plus selector/seam shape. UI copy: "onto the belt"
+  becomes pouch language at build time. Everything else should hold —
+  palette untouched, drop model untouched (notes arrive via choosers, not
+  drags, this phase).
+- **Staging (protect the 517):**
+  1. **Pouches + the open pouch** — the frame structure, staging semantics,
+     and cards land together (the open pouch IS the semantic change, so there
+     is no "behavior-identical" stage; the honest move is rewriting the
+     Phase-13 call tests alongside, with the diffs enumerated above).
+  2. **Notes + resolution rule + choosers + toggle** — the semantic phase;
+     new suite (below); includes the `new note` statement.
+  3. Content (a loadable factorial example?) — separate decision, as the
+     seed-program migration was.
+- **Test plan** (extend `test-call.js` or new `test-frames.js`): the
+  resolution matrix (read/assign/unpack × top-note/lower-note/world/missing);
+  factorial end-to-end asserting per-frame n; the belt-threading equivalence
+  replay; shadow-gray and merged-view DOM; editable-top/read-only-below;
+  Reset; every halt. Mutation seeds: read order flipped (world-first); a
+  write creating in the top pouch when the name exists below (implicit
+  shadowing — the rejected rule; the paddle-freeze test catches it);
+  `new note` writing through instead of declaring (factorial silently wrong —
+  the exact bug the statement exists to prevent); the name validator
+  accepting a world name; `pack` appending to the ACTIVE pouch (kills
+  isolation — caught by the nested-visit leftover test); `visit` reusing the
+  open pouch without spawning a fresh one; `return` delivering results to
+  the new OPEN pouch instead of the caller (results become the next call's
+  arguments — the doubler catches it); unconsumed arguments surviving the
+  pop; results PREPENDED instead of appended (the FIFO-wrinkle test);
+  notes surviving the pop; frame 0 poppable.
+
+### Deferred, recorded
+Typed parcels and sprite-valued notes · palette tiles for notes · named
+parameters on the pouch card (the card SHOWING "expects: n" is a contract
+surface worth wanting) · tail calls (the pile that never grows — a lovely
+lesson, nowhere near earning its complexity yet).
+
 ## Open threads / next
 - ~~"Fill a slot with a variable"~~ solved by Phase 8: drag the variable's palette
   tile onto the number (the displaced number goes to the spares).
 - ~~Assign-target authoring~~, ~~despawn on the shelf~~, ~~label/jump
   authoring~~ — all landed in Phase 10 via the chip-tap rule.
+- **Phase 14 (the visit stack / pouches / notes) is SPECced above — build
+  next.** Its Stage 2 also delivers the scratch variables Phase 13b said the
+  belt needed to be usable.
 - **Wire-endpoint dragging** (grab an arrowhead, drop it on another flag):
   lovely direct-manipulation polish, deferred (thin bezier hit targets).
 - **Auto-open** the fresh operand's editor after wrap? Currently flash-only.
