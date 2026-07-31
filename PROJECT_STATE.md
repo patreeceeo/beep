@@ -108,9 +108,34 @@ its type, collapse would leave something of the wrong type in the slot. Hence:
   NEGATION, which the operator menu's "the opposite" applies. Deliberately
   SEPARATE from `OPS` — comparisons are not wrap material.
 - **`UNARY_OPS`** — `not` only.
+- **`LEAF_CHOICES`** — one entry per node type whose chooser just writes a field
+  from a list (`var`, `sprite`, `prop`, `bool`, `edge`): `{title, field, options}`.
+  `openChoicePop` is the only body. `handleOnly` marks the two that open from
+  their handle rather than from a tap on the piece (`prop` from the "x of" glyph,
+  `edge` from the chip); `plain` skips the wrap/take-out sections for a constant.
+  **`openPredPop` is deliberately NOT in here** — picking a sensor REPLACES the
+  node through its slot instead of writing a field, and folding that in would
+  put a second code path back inside the shared body.
 - **and/or evaluate EAGERLY — no short-circuit, deliberately.** The thought bubble
   prints both operands' values, so a half-evaluated expression would show Beep
   reporting a value he never actually read.
+
+### Shared shells (say a thing once)
+- **`hexHtml(kind, selfId, node, inner)`** — the gold hexagon every boolean piece
+  wears (`touch`, `closing`, `edge`, `alive`, `bool`, `cmp`, `key`). Outer span is
+  the border ring and the drag/tap target, inner span the fill; only the contents
+  differ. A new boolean node type inherits the silhouette by asking for it.
+- **`boxOf(name)`** — the ONE geometry function. Phase 17's `ballBox`/`paddleBox`/
+  `brickBox`/`spriteBox` had all decayed into `return boxOf(name)` and are gone;
+  `__lang.spriteBox` still points here so the suites read naturally.
+- **`clearRunMemory()`** — a run's memory dies with the run. Both doors into a
+  fresh run (the Reset button, the `__call.load` seam) go through it, so they
+  cannot drift apart.
+- **`popSection(title)` / `commitThen(fn)`** — a titled chooser sub-section, and
+  the "flush the half-typed number before acting" wrapper both "wrap in" and
+  "take out" need.
+- **`otherButton(e)`** — every pointerdown handler asks the same question first;
+  `stmtDragOpens(e)` is the fuller prologue the two statement-drag doors share.
 
 ## Gesture map (current)
 - Grip drag → reorder statement / Trash (delete; referenced labels confirm first) /

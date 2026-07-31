@@ -272,16 +272,8 @@
     border:1.5px solid rgba(46,42,59,.14); box-shadow:0 1.5px 0 rgba(46,42,59,.12);
   }
   .stmt-tile:active{ cursor:grabbing; }
-  .stmt-tile.assign{ background:var(--purple-soft); color:var(--purple-deep); }
-  .stmt-tile.action{ background:var(--teal-soft); color:var(--teal-deep); }
-  .stmt-tile.check{ background:var(--sun-soft); color:var(--sun-deep); }
-  .stmt-tile.jump{ background:var(--coral-soft); color:var(--coral-deep); }
-  .stmt-tile.visit{ background:var(--coral-soft); color:var(--coral-deep); border-style:dashed; }
+  .stmt-tile.visit{ border-style:dashed; }
   .stmt-tile.check.callrow{ border-style:dashed; }
-  .stmt-tile.return{ background:var(--coral-soft); color:var(--coral-deep); }
-  .stmt-tile.pack{ background:var(--teal-soft); color:var(--teal-deep); }
-  .stmt-tile.unpack{ background:var(--purple-soft); color:var(--purple-deep); }
-  .stmt-tile.note{ background:var(--purple-soft); color:var(--purple-deep); }
   .stmt-tile.label{ background:#fff; color:var(--ink); }
   .stmt-tile .chip, .stmt-tile .flagref{
     background:rgba(255,255,255,.75); border-radius:6px; padding:0 5px;
@@ -391,24 +383,36 @@
     background:var(--sun-soft); color:var(--sun-deep); border:1.5px solid var(--sun);
     border-radius:999px; padding:0 8px; font-size:12px;
   }
-  .block.assign{background:var(--purple-soft); color:var(--purple-deep)}
-  .block.action{background:var(--teal-soft); color:var(--teal-deep)}
-  .block.check{background:var(--sun-soft); color:var(--sun-deep)}
-  .block.jump{background:var(--coral-soft); color:var(--coral-deep)}
-  /* Phase 13: visit/return are control flow (coral, like jump); pack/unpack move
-     values (teal out, purple in - unpack writes a variable, so it reads assign-ish). */
-  .block.visit{background:var(--coral-soft); color:var(--coral-deep); border-color:rgba(184,73,45,.35); border-style:dashed}
+  /* ------- ONE statement-family -> hue map -------
+     A statement wears its family's colour whether it is a real row (.block) or
+     a mini on the shelf / in the spare tiles (.stmt-tile), so the two are named
+     together here. Writing the map twice is how they drift.
+       purple  writes a name    assign - unpack - note
+       teal    acts on the world  command - pack
+       sun     asks a question   check (ifjump, ifvisit)
+       coral   moves control     jump - visit - return
+     Phase 13: visit/return are control flow (coral, like jump); pack/unpack move
+     values (teal out, purple in - unpack writes a variable, so it reads
+     assign-ish). Anything beyond the hue - a dashed edge, an inset rule - is a
+     MODIFIER and stays with the rule that owns it, below. */
+  .block.assign, .stmt-tile.assign,
+  .block.unpack, .stmt-tile.unpack,
+  .block.note,   .stmt-tile.note   { background:var(--purple-soft); color:var(--purple-deep) }
+  .block.action, .stmt-tile.action,
+  .block.pack,   .stmt-tile.pack   { background:var(--teal-soft);   color:var(--teal-deep) }
+  .block.check,  .stmt-tile.check  { background:var(--sun-soft);    color:var(--sun-deep) }
+  .block.jump,   .stmt-tile.jump,
+  .block.visit,  .stmt-tile.visit,
+  .block.return, .stmt-tile.return { background:var(--coral-soft);  color:var(--coral-deep) }
+
+  .block.visit{ border-color:rgba(184,73,45,.35); border-style:dashed }
   /* ifvisit asks a question (so it IS a .check - sun, and it inherits every
      check's socket hue) but it comes back, which is the dashed edge every visit
      wears. The silhouette says both halves; the kind says which family it is. */
   .block.check.callrow{ border-color:rgba(138,91,0,.35); border-style:dashed }
-  .block.return{background:var(--coral-soft); color:var(--coral-deep)}
-  .block.pack{background:var(--teal-soft); color:var(--teal-deep)}
-  .block.unpack{background:var(--purple-soft); color:var(--purple-deep)}
   /* `new note` DECLARES - it is the only statement that makes a name exist, so
      it reads as assign-family (purple) with a solid left rule to say "here". */
-  .block.note{background:var(--purple-soft); color:var(--purple-deep);
-              box-shadow:inset 3px 0 0 var(--purple)}
+  .block.note{ box-shadow:inset 3px 0 0 var(--purple) }
   .ret-arrow{ font-weight:700; margin-right:2px; }
   .block.labelrow{background:transparent; padding:4px 0 0 6px}
   .block.labelrow .flag{
@@ -472,10 +476,10 @@
   }
   #wires path.rope-dead{ opacity:0; transition:opacity .3s; }
   /* Phase 10: chips are tappable references - give them button manners */
-  .block .flagref, .block .flag, .block .tgt-chip, .block .sprite-chip{
+  .block .flagref, .block .flag, .block .tgt-chip{
     cursor:pointer; transition:box-shadow .15s;
   }
-  .block .flagref:hover, .block .flag:hover, .block .tgt-chip:hover, .block .sprite-chip:hover{
+  .block .flagref:hover, .block .flag:hover, .block .tgt-chip:hover{
     box-shadow:0 0 0 2.5px var(--purple-soft);
   }
   .flagref.hint{ animation:hintpulse .42s 3; }
@@ -639,9 +643,7 @@
   .btn .ico{ width:15px; height:15px; flex:none; display:block; }
   .btn:active{transform:translateY(3px); box-shadow:0 0 0 var(--ink)}
   .btn.primary{background:var(--sun)}
-  .btn.teal{background:var(--teal); color:#fff; border-color:var(--teal-deep); box-shadow:0 3px 0 var(--teal-deep)}
   .btn.on{background:var(--ink); color:#fff}
-  .btn.teal.on{background:var(--teal-deep)}
   .hint{margin-top:10px; font-size:13.5px; color:var(--ink-soft)}
   .hint b{color:var(--ink)}
   @media (prefers-reduced-motion: reduce){
@@ -838,23 +840,16 @@
       spritePos['brick'+n] = { x: START['brick'+n+'X'], y: toPct(BRICK_Y, BRICK_H, d.H) };
     });
   }
+  // ONE box function, every sprite, no names: anything needing geometry takes a
+  // sprite as a value. (Phase 17 folded away the per-sprite ballBox/paddleBox/
+  // brickBox wrappers this replaced - they had all become `return boxOf(name)`.)
   function boxOf(name){
     const d = px(), sz = SPRITE_SIZE[name], p = spritePos[name];
     if (!sz || !p) return { x:0, y:0, w:0, h:0 };
     return { x: toPx(p.x, sz[0], d.W), y: toPx(p.y, sz[1], d.H), w: sz[0], h: sz[1] };
   }
-  function ballBox(){   return boxOf('ball'); }
-  function paddleBox(){ return boxOf('paddle'); }
-  function brickBox(n){ return boxOf('brick'+n); }
   // pixel offset -> logical 0..100 (the inverse of toPx)
   function toPct(v, size, axis){ return axis === size ? 0 : v/(axis-size)*100; }
-  // Phase 12: one box function per sprite NAME, so anything that needs geometry
-  // can take a sprite as a value instead of switching on a hardcoded name.
-  function spriteBox(name){
-    if (name === 'ball')   return ballBox();
-    if (name === 'paddle') return paddleBox();
-    return brickBox(Number(String(name).replace('brick', '')));
-  }
   // a sprite's LOGICAL position, both axes 0..100 - read straight off the sprite
   function spriteXY(name){
     const p = spritePos[name];
@@ -865,28 +860,29 @@
   }
   const keys = {};
   function isKeyPressed(k){ return !!keys[k]; }
-  /* Phase 12: touching is a relationship between TWO sprites, not a sensor with a
-     baked-in subject. A dead sprite touches nothing - unchanged from Phase 10, it
-     just applies symmetrically to both operands now.
-
-     TOUCHING MEANS OVERLAPPING **AND CLOSING**. The hand-written tests this
-     replaced each carried an approach guard: the ball only "touched" the paddle
-     while `ballVelocityY > 0`, and only touched a wall while moving into it.
-     Dropping those guards looked like the price of generalisation - and it is not.
-     "Are they closing?" is a perfectly general question: take the line between the
-     two sprites and ask whether their RELATIVE velocity shortens it. For the old
-     ball-vs-paddle case that reduces to exactly `ballVelocityY > 0`; for two
-     motionless sprites it is vacuously true, so a resting overlap still counts.
-
-     Without this, overlap alone flips the velocity on every pass, so a ball that
-     overshoots an edge bounces back and forth in place forever - which simulation
-     confirmed before the guard went back in. */
+  /* KNOWN LIMIT, and the last convention-bound thing in the engine: velocity is
+     read from two variables BY NAME, so `isClosingOn` only really works for the
+     ball. The paddle genuinely moves (nudgePaddle) but reads as stationary, and
+     a learner who writes `ballX = ballX + 2` instead gets {0,0} and falls into
+     the "nothing is moving" branch below. The fix, once it matters: cache each
+     sprite's position per program pass and derive velocity from the delta -
+     convention-free, and it works for any sprite moved by any means. */
   function spriteVel(name){
     // only the ball carries velocity today; everything else is moved by hand
     if (name === 'ball') return { x: state.ballVelocityX, y: state.ballVelocityY };
     return { x: 0, y: 0 };
   }
-  /* Which AXIS did these two meet on? The one they have only just crossed - i.e.
+  /* "Are they closing?" is a perfectly general question - take the two sprites
+     and ask whether their RELATIVE velocity is shortening the gap - which is why
+     it survives as its own predicate instead of staying baked into isTouching.
+     For the old ball-vs-paddle case it reduces to exactly `ballVelocityY > 0`;
+     for two motionless sprites it is vacuously true, so a resting overlap still
+     counts. Without a guard SOMEWHERE, overlap alone flips the velocity every
+     pass and a ball that overshoots an edge oscillates in place forever -
+     simulation confirmed that before the guard went back in, as the program's
+     job rather than the engine's.
+
+     Which AXIS did these two meet on? The one they have only just crossed - i.e.
      the shallower penetration. That is the collision normal, and it is the ONLY
      axis whose relative velocity matters.
 
@@ -901,7 +897,7 @@
     const va = spriteVel(a), vb = spriteVel(b);
     const rvx = va.x - vb.x, rvy = va.y - vb.y;
     if (!rvx && !rvy) return true;                        // nothing is moving: a rest contact
-    const A = spriteBox(a), B = spriteBox(b);
+    const A = boxOf(a), B = boxOf(b);
     const overX = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x);
     const overY = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y);
     const cax = A.x + A.w/2, cay = A.y + A.h/2;
@@ -910,7 +906,9 @@
     if (overX <= overY) return (cbx - cax) * rvx > 0;     // met side-on: only x counts
     return (cby - cay) * rvy > 0;                         // met face-on: only y counts
   }
-  /* TOUCHING IS PURE OVERLAP. It answers exactly one question and answers it the
+  /* TOUCHING IS PURE OVERLAP, and it is a relationship between TWO sprites, not
+     a sensor with a baked-in subject; a dead sprite touches nothing, symmetrically
+     on both sides. It answers exactly one question and answers it the
      way a learner would: are these two in the same place? The approach guard that
      used to hide in here is a SEPARATE predicate now (`isClosingOn`), which the
      seed program applies explicitly where it matters. That is the whole point:
@@ -919,10 +917,8 @@
   function spritesTouch(a, b){
     if (a === b) return false;                        // nothing touches itself
     if (!spriteAlive[a] || !spriteAlive[b]) return false;
-    return overlaps(spriteBox(a), spriteBox(b));
+    return overlaps(boxOf(a), boxOf(b));
   }
-  /* Same rule at an edge: at-or-past it, and not already heading back inside. A
-     motionless sprite resting against an edge still reads as touching it. */
   // likewise an edge test is pure POSITION: at or past the edge, nothing more
   function edgeTouch(name, edge){
     if (!spriteAlive[name]) return false;
@@ -1290,9 +1286,6 @@
   function pack_(expr){ return mk({ type:'pack', expr:expr }); }
   function unpack_(name){ return mk({ type:'unpack', target:name }); }
   function note_(name){ return mk({ type:'note', name:name }); }
-  function ifKeyJump(arrow, keyName, name){
-    return mk({ type:'ifjump', cond: keyCond(keyName, arrow), target:name });
-  }
   function ifKeyVisit(arrow, keyName, name){
     return mk({ type:'ifvisit', cond: keyCond(keyName, arrow), target:name });
   }
@@ -1559,7 +1552,6 @@
   /* ---------- rendering helpers ---------- */
   // Build one editable tile per backpack variable: a native number input with
   // the variable's own min / max / step.
-  function buildPack(){ renderStack(); }      // the world card is built BY the stack now
   function renderPack(){
     // the world's inputs are live DOM; update values in place so typing is not
     // interrupted, and only rebuild when a pouch's SHAPE changed (renderStack)
@@ -1609,6 +1601,18 @@
     const gone = program.indexOf(pouch.label) === -1;
     return '<span class="flag'+(gone ? ' lost' : '')+'">\u2691 '+(gone ? '?' : pouch.label.name)+'</span>';
   }
+  /* A run's memory dies with the run: every pouch above the world, every parcel,
+     and any note the program invented at top level (world variables are restored
+     by the caller, which owns START). Both doors into a fresh run - the Reset
+     button and the __call.load test seam - go through here, so they cannot
+     drift apart. */
+  function clearRunMemory(){
+    Object.keys(state).forEach(function(k){ if (VARS.indexOf(k) === -1) delete state[k]; });
+    worldPouch.parcels = [];
+    pouches = [worldPouch];
+    open = makePouch();
+  }
+
   function renderStack(moved){
     if (!stackEl) return;
     let html = '';
@@ -2115,12 +2119,7 @@
     if (current){ current.timers.forEach(clearTimeout); current = null; }
     VARS.forEach(function(k){ state[k] = START[k]; });
     respawnAll();
-    // Phase 14: a run's memory dies with the run - every pouch above the world,
-    // every parcel, and any notes the program invented at top level
-    Object.keys(state).forEach(function(k){ if (VARS.indexOf(k) === -1) delete state[k]; });
-    worldPouch.parcels = [];
-    pouches = [worldPouch];
-    open = makePouch();
+    clearRunMemory();
     renderStack(); renderMarks();
     pc = 0; busy = false;
     hideBubble(); highlight(-1);
@@ -2191,8 +2190,13 @@
   /* ---------- drag to reorder (blocks AND flags) ---------- */
   let drag = null;
 
+  /* Every pointerdown handler in the app asks the same question first: is this
+     the primary button? (`undefined` covers touch and pen, which report no
+     button at all.) One name for it, so a new handler cannot spell it wrong. */
+  function otherButton(e){ return e.button !== undefined && e.button !== 0; }
+
   function onPointerDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
+    if (otherButton(e)) return;
     const grip = e.currentTarget;
     const el = grip.closest('.block');
     if (!el) return;
@@ -2356,6 +2360,14 @@
   }
 
   function justCls(n){ if (n._justSet){ n._justSet = false; return ' just-set'; } return ''; }
+  /* The gold hexagon every boolean piece wears: outer span is the border ring
+     and the drag/tap target, inner span is the fill. `kind` is the extra class
+     that colours or shapes it ('cmp', 'bool', 'alive', or '' for a plain
+     sensor); `inner` is whatever the node has to say. */
+  function hexHtml(kind, selfId, node, inner){
+    return '<span class="pred'+(kind ? ' '+kind : '')+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
+         +   '<span class="pred-in">'+inner+'</span></span>';
+  }
   // render a node as draggable HTML; isRoot suppresses the movable wrapper on the
   // outermost expression (you move its parts, not the whole RHS).
   function nodeHtml(node, parent, field, isRoot){
@@ -2391,55 +2403,46 @@
                   + nodeHtml(node.sprite, node, 'sprite', false);
       return '<span class="group'+justCls(node)+'" data-sl="'+selfId+'">'+inner+'</span>';
     }
+    /* Everything boolean wears the same gold hexagon - outer span is the border
+       ring and the drag/tap target, inner span the fill. Only the contents differ,
+       so the shell is written once: the silhouette cannot drift between one
+       predicate and the next, and a new boolean node type inherits it by asking. */
     if (node.type === 'touch' || node.type === 'closing'){
       const selfId = reg(parent, field);
       const word = node.type === 'touch' ? 'isTouching' : 'isClosingOn';
-      return '<span class="pred alive'+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
-           +   '<span class="pred-in">'
-           +     nodeHtml(node.left, node, 'left', false)
-           +     '<span class="lit">'+word+'</span>'
-           +     nodeHtml(node.right, node, 'right', false)
-           +   '</span></span>';
+      return hexHtml('alive', selfId, node,
+                     nodeHtml(node.left, node, 'left', false)
+                   + '<span class="lit">'+word+'</span>'
+                   + nodeHtml(node.right, node, 'right', false));
     }
     if (node.type === 'edge'){
       // the sprite is a real SLOT; the edge is a tap-to-repoint chip
       const selfId = reg(parent, field);
-      return '<span class="pred alive'+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
-           +   '<span class="pred-in">'
-           +     nodeHtml(node.sprite, node, 'sprite', false)
-           +     '<span class="lit">isTouching</span>'
-           +     '<span class="chip edge-chip" data-edge="'+selfId+'">'+edgeLabel(node.edge)+'</span>'
-           +   '</span></span>';
+      return hexHtml('alive', selfId, node,
+                     nodeHtml(node.sprite, node, 'sprite', false)
+                   + '<span class="lit">isTouching</span>'
+                   + '<span class="chip edge-chip" data-edge="'+selfId+'">'+edgeLabel(node.edge)+'</span>');
     }
     if (node.type === 'alive'){
-      // yields a BOOLEAN, so it wears the gold hexagon like every other predicate
-      const selfId = reg(parent, field);
-      return '<span class="pred alive'+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
-           +   '<span class="pred-in">'
-           +     nodeHtml(node.sprite, node, 'sprite', false)
-           +     '<span class="lit">is alive</span>'
-           +   '</span></span>';
+      return hexHtml('alive', reg(parent, field), node,
+                     nodeHtml(node.sprite, node, 'sprite', false)
+                   + '<span class="lit">is alive</span>');
     }
     if (node.type === 'bool'){
-      return '<span class="pred bool'+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'
-           +   '<span class="pred-in">'+boolWord(node.value)+'</span></span>';
+      return hexHtml('bool', reg(parent, field), node, boolWord(node.value));
     }
     if (node.type === 'cmp'){
-      // the hexagon says "this is a yes/no"; inside it sit two REAL number slots
-      // and a tappable operator - the same selfId idiom as bin, where the operator
-      // glyph is the handle for the node it belongs to.
+      // inside the hexagon sit two REAL number slots and a tappable operator - the
+      // same selfId idiom as bin, where the operator glyph is the handle for the
+      // node it belongs to.
       const selfId = reg(parent, field);
-      return '<span class="pred cmp'+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
-           +   '<span class="pred-in">'
-           +     nodeHtml(node.left, node, 'left', false)
-           +     '<span class="op cmp-op" data-op="'+selfId+'">' + cmpGlyph(node.op) + '</span>'
-           +     nodeHtml(node.right, node, 'right', false)
-           +   '</span></span>';
+      return hexHtml('cmp', selfId, node,
+                     nodeHtml(node.left, node, 'left', false)
+                   + '<span class="op cmp-op" data-op="'+selfId+'">' + cmpGlyph(node.op) + '</span>'
+                   + nodeHtml(node.right, node, 'right', false));
     }
-    if (node.type === 'key' || node.type === 'touch'){
-      // a boolean predicate: hexagon piece (outer = border ring, inner = fill + text)
-      return '<span class="pred'+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'
-           +   '<span class="pred-in">'+condHtml(node)+'</span></span>';
+    if (node.type === 'key'){
+      return hexHtml('', reg(parent, field), node, condHtml(node));
     }
     const cls  = node.type === 'num' ? 'token num' : 'token var';
     const text = node.type === 'num' ? node.value : node.name;
@@ -2559,7 +2562,7 @@
     return null;
   }
   function onSlotDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
+    if (otherButton(e)) return;
     e.preventDefault();
     e.stopPropagation();                 // not a statement drag, not a focus click
     const el = e.currentTarget;
@@ -2772,7 +2775,7 @@
   // tap the operator glyph = open the bin's menu (the operator is the handle for
   // the whole subtree): flip its sign, or wrap the whole bin in another operation.
   function onOpDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
+    if (otherButton(e)) return;
     e.preventDefault(); e.stopPropagation();        // don't also start a group drag
     const opEl = e.currentTarget;
     const node = slotNode(opEl.dataset.op);         // capture before closeLeafPop can re-render
@@ -2780,16 +2783,16 @@
     if (node && node.type === 'bin') openBinPop(liveAnchor(node, opEl), node);
     else if (node && node.type === 'cmp') openCmpPop(liveAnchor(node, opEl), node);
     else if (node && node.type === 'not') openNotPop(opEl, node);
-    else if (node && node.type === 'prop') openPropPop(liveAnchor(node, opEl), node);
+    else if (node && node.type === 'prop') openChoicePop(liveAnchor(node, opEl), node);
   }
   // Phase 10 idiom: a chip is a reference you repoint by tapping it
   function onEdgeChipDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
+    if (otherButton(e)) return;
     e.preventDefault(); e.stopPropagation();
     const el = e.currentTarget;
     const node = slotNode(el.dataset.edge);
     closeLeafPop();
-    if (node && node.type === 'edge') openEdgePop(el, node);
+    if (node && node.type === 'edge') openChoicePop(el, node);
   }
 
   // dispatch a leaf tap to the right chooser (a bin group has no content of its
@@ -2806,11 +2809,12 @@
     if (!node) return;
     const anchor = liveAnchor(node, anchorEl);
     if (node.type === 'num') return openNumPop(anchor, node);
-    if (node.type === 'var') return openVarPop(anchor, node);
     if (node.type === 'key' || node.type === 'touch') return openPredPop(anchor, node);
     if (node.type === 'cmp') return openCmpPop(anchor, node);
-    if (node.type === 'bool') return openBoolPop(anchor, node);
-    if (node.type === 'sprite') return openSpriteValuePop(anchor, node);
+    // handleOnly choosers (prop, edge) open from their own handle, not from a
+    // tap on the piece - see onOpDown / onEdgeChipDown
+    const spec = LEAF_CHOICES[node.type];
+    if (spec && !spec.handleOnly) return openChoicePop(anchor, node);
   }
 
   /* ---- the chooser popover (one at a time, floated over everything) ---- */
@@ -2859,6 +2863,25 @@
     const t = document.createElement('div'); t.className = 'pop-title'; t.textContent = text; pop.appendChild(t);
   }
   function popGrid(pop){ const g = document.createElement('div'); g.className = 'pop-grid'; pop.appendChild(g); return g; }
+  /* A titled sub-section of a chooser ("wrap in", "take out"). Returns the
+     section and its grid unattached, because a caller may decide partway
+     through that it has nothing to offer. */
+  function popSection(title){
+    const sec = document.createElement('div'); sec.className = 'wrap-sec';
+    popTitle(sec, title);
+    return { sec:sec, grid:popGrid(sec) };
+  }
+  /* A chooser button that ACTS (wraps, stashes, trashes) rather than just
+     picking a value has to flush a half-typed number first - the number
+     chooser's input commits on close, and closing is about to happen. */
+  function commitThen(fn){
+    return function(ev){
+      ev.preventDefault();
+      const pend = leafPopCommit; leafPopCommit = null;
+      if (pend) pend();
+      fn();
+    };
+  }
   function optButton(grid, label, isCur, onPick){
     const b = document.createElement('button');
     b.className = 'opt' + (isCur ? ' cur' : '');
@@ -2917,7 +2940,7 @@
                     bool:bool, typeOf:typeOf, identityNode:identityNode,
                     notOf:notOf, UNARY_OPS:UNARY_OPS,
                     sprite:sprite, propOf:propOf, aliveOf:aliveOf, PROPS:PROPS,
-                    SPRITES:SPRITES, spriteXY:spriteXY, spriteBox:spriteBox,
+                    SPRITES:SPRITES, spriteXY:spriteXY, spriteBox:boxOf,
                     spriteAlive:spriteAlive, despawnSprite:despawnSprite,
                     spritePos:spritePos, resetSpritePos:resetSpritePos,
                     placeSprite:function(n, x, y){ spritePos[n] = { x:x, y:y }; drawSprite(n); },
@@ -2952,10 +2975,7 @@
       });
       program.length = 0;
       list.forEach(function(b){ program.push(b); buildBlock(b); });
-      Object.keys(state).forEach(function(k){ if (VARS.indexOf(k) === -1) delete state[k]; });
-      worldPouch.parcels = [];
-      pouches = [worldPouch];
-      open = makePouch();
+      clearRunMemory();
       pc = 0; busy = false;
       renderStack(); drawWires(); robotToBlock(0);
     },
@@ -2993,23 +3013,18 @@
   function appendWrapSection(pop, node){
     const ops = opsFor(node);
     if (!ops.length) return;
-    const sec = document.createElement('div'); sec.className = 'wrap-sec';
-    const t = document.createElement('div'); t.className = 'pop-title'; t.textContent = 'wrap in'; sec.appendChild(t);
-    const grid = document.createElement('div'); grid.className = 'pop-grid'; sec.appendChild(grid);
+    const part = popSection('wrap in'), grid = part.grid;
     ops.forEach(function(o){
       const b = document.createElement('button'); b.className = 'opt';
       // "+ 0" / "and yes" - the identity you then tune. `not` has none to show.
       b.textContent = o.unary ? opGlyph(o.op) : opGlyph(o.op) + ' ' + identityLabel(o);
-      b.addEventListener('click', function(ev){
-        ev.preventDefault();
-        const pend = leafPopCommit; leafPopCommit = null;  // commit any typed value first
-        if (pend) pend();
+      b.addEventListener('click', commitThen(function(){
         wrapNode(node, o);
         closeLeafPop();
-      });
+      }));
       grid.appendChild(b);
     });
-    pop.appendChild(sec);
+    pop.appendChild(part.sec);
   }
 
   // menu parity with the drop zones (which can be off-screen): a removable
@@ -3020,18 +3035,11 @@
     const id = slotIdOf(node);
     if (!id) return;
     const s = slotReg[id];
-    const sec = document.createElement('div'); sec.className = 'wrap-sec';
-    const t = document.createElement('div'); t.className = 'pop-title'; t.textContent = 'take out'; sec.appendChild(t);
-    const grid = document.createElement('div'); grid.className = 'pop-grid'; sec.appendChild(grid);
+    const part = popSection('take out'), sec = part.sec;
     function opt(label, fn){
       const b = document.createElement('button'); b.className = 'opt'; b.textContent = label;
-      b.addEventListener('click', function(ev){
-        ev.preventDefault();
-        const pend = leafPopCommit; leafPopCommit = null;   // commit any typed value first
-        if (pend) pend();
-        fn();
-      });
-      grid.appendChild(b);
+      b.addEventListener('click', commitThen(fn));
+      part.grid.appendChild(b);
     }
     if (Array.isArray(s.parent)){                 // a spare tile: it just leaves
       opt('trash this tile', function(){
@@ -3082,22 +3090,56 @@
     requestAnimationFrame(function(){ inp.focus(); inp.select(); });
   }
 
-  // variable: pick another backpack variable (all are numbers, so type is safe)
-  function openVarPop(anchorEl, node){
+  /* ---- the leaf choosers ----
+     Five of these were the same ten lines with a different list and a different
+     field, so they are one function and a registry now: pick a node type, say
+     which field the choice writes and where the options come from. Adding a
+     chooser is one entry, exactly as adding an operation is one OPS entry.
+
+     Every one of them is a CONTENT-only edit - the tree's shape and every
+     operand type is untouched - so the always-valid invariant holds by
+     construction, which is why they can share a body at all. */
+  const LEAF_CHOICES = {
+    // all backpack variables are numbers, so any swap is type-safe
+    var:    { title:'variable',      field:'name',
+              options:function(){ return VARS.map(function(n){ return { value:n, label:n }; }); } },
+    // no sprite->sprite ops today, so the wrap section renders silently empty
+    sprite: { title:'which sprite',  field:'name',
+              options:function(){ return SPRITES.map(function(n){ return { value:n, label:n }; }); } },
+    // "x of" / "y of" is the handle for the reading it introduces. It IS a
+    // number, so the wrap section offers + - x div.
+    prop:   { title:'which reading', field:'prop', handleOnly:true,
+              options:function(){ return PROPS.map(function(p){ return { value:p, label:p+' of' }; }); } },
+    // the simplest chooser in the language: two options. Unlike a sensor it CAN
+    // be wrapped, because and/or are boolean->boolean ops appendWrapSection finds.
+    bool:   { title:'yes or no',     field:'value',
+              options:function(){ return [true, false].map(function(b){ return { value:b, label:boolWord(b) }; }); } },
+    // an edge is a CHIP, not a type: four constants, never computed and never
+    // stored, so nothing can wrap it and it has nowhere to be taken out to.
+    edge:   { title:'which edge',    field:'edge', plain:true, handleOnly:true,
+              options:function(){ return EDGES.map(function(o){ return { value:o.edge, label:o.label }; }); } }
+  };
+  function openChoicePop(anchorEl, node){
+    const spec = LEAF_CHOICES[node.type];
+    if (!spec) return;
     const pop = openPop(anchorEl);
-    popTitle(pop, 'variable');
+    popTitle(pop, spec.title);
     const grid = popGrid(pop);
-    VARS.forEach(function(name){
-      optButton(grid, name, name === node.name, function(){
-        node.name = name; markEdited(node); cancelLeafPop();
+    spec.options().forEach(function(o){
+      optButton(grid, o.label, node[spec.field] === o.value, function(){
+        node[spec.field] = o.value; markEdited(node); cancelLeafPop();
       });
     });
+    if (spec.plain) return;
     appendWrapSection(pop, node);
     appendZoneSection(pop, node);
   }
 
-  // predicate: pick another boolean sensor. Replaces the node with a fresh key /
-  // touch condition of the SAME value type (boolean), through the captured slot.
+  /* The one chooser that is NOT in LEAF_CHOICES, and deliberately: picking a
+     sensor REPLACES the node through its captured slot with a freshly built
+     one, rather than writing a field on the node in place. Same gesture,
+     different move - folding it in would mean a second code path inside
+     openChoicePop, which is the duplication this registry just removed. */
   function openPredPop(anchorEl, node){
     const s = slotReg[anchorEl.dataset.sl];          // {parent, field} - captured before any re-render
     const pop = openPop(anchorEl);
@@ -3139,68 +3181,6 @@
       const inner = node.operand;
       if (s) s.parent[s.field] = inner;            // not X -> X
       markEdited(inner); cancelLeafPop();
-    });
-    appendWrapSection(pop, node);
-    appendZoneSection(pop, node);
-  }
-
-  // the edge chip: repoint it, exactly like a flagref or an assign target.
-  function openEdgePop(anchorEl, node){
-    const pop = openPop(anchorEl);
-    popTitle(pop, 'which edge');
-    const grid = popGrid(pop);
-    EDGES.forEach(function(o){
-      optButton(grid, o.label, o.edge === node.edge, function(){
-        node.edge = o.edge; markEdited(node); cancelLeafPop();
-      });
-    });
-  }
-
-  // sprite: pick another one. Content-only, like every other leaf chooser.
-  /* Phase 15 retired the twin: `openSpritePop` (Phase 10) repointed despawn's
-     BAKED sprite field, and despawn now holds a sprite VALUE in a real slot, so
-     this one chooser serves every sprite in the language. That also disarms the
-     duplicate-declaration landmine the old pair created - two same-named
-     functions are legal JS and the later silently wins, which no `node --check`
-     and no non-DOM test can catch. One name, one meaning. */
-  function openSpriteValuePop(anchorEl, node){
-    const pop = openPop(anchorEl);
-    popTitle(pop, 'which sprite');
-    const grid = popGrid(pop);
-    SPRITES.forEach(function(name){
-      optButton(grid, name, name === node.name, function(){
-        node.name = name; markEdited(node); cancelLeafPop();
-      });
-    });
-    appendWrapSection(pop, node);   // no sprite->sprite ops today, so silent
-    appendZoneSection(pop, node);
-  }
-
-  // "x of" / "y of" is the handle for the reading it introduces - tap to switch axis
-  function openPropPop(anchorEl, node){
-    const pop = openPop(anchorEl);
-    popTitle(pop, 'which reading');
-    const grid = popGrid(pop);
-    PROPS.forEach(function(p){
-      optButton(grid, p + ' of', p === node.prop, function(){
-        node.prop = p; markEdited(node); cancelLeafPop();
-      });
-    });
-    appendWrapSection(pop, node);   // it IS a number, so + - x div are offered
-    appendZoneSection(pop, node);
-  }
-
-  // boolean literal: yes or no. The simplest chooser in the language - two options,
-  // content-only, and (unlike a sensor) it can be WRAPPED, because and/or are
-  // boolean->boolean ops that appendWrapSection now finds.
-  function openBoolPop(anchorEl, node){
-    const pop = openPop(anchorEl);
-    popTitle(pop, 'yes or no');
-    const grid = popGrid(pop);
-    [true, false].forEach(function(val){
-      optButton(grid, boolWord(val), node.value === val, function(){
-        node.value = val; markEdited(node); cancelLeafPop();
-      });
     });
     appendWrapSection(pop, node);
     appendZoneSection(pop, node);
@@ -3265,7 +3245,7 @@
     return compatible(dragEl, targetEl);
   }
   function onPaletteDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
+    if (otherButton(e)) return;
     if (pieceDrag) return;
     e.preventDefault(); e.stopPropagation();
     closeLeafPop();
@@ -3965,19 +3945,21 @@
     drawWires();
     robotToBlock(lastRobotTarget);
   }
-  function onStmtProtoDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
-    if (drag || pieceDrag) return;
+  // both statement-drag doors open the same way: primary button, nothing else
+  // already dragging, and the chooser dismissed before a block starts moving
+  function stmtDragOpens(e){
+    if (otherButton(e) || drag || pieceDrag) return false;
     e.preventDefault(); e.stopPropagation();
     closeLeafPop();
+    return true;
+  }
+  function onStmtProtoDown(e){
+    if (!stmtDragOpens(e)) return;
     const item = PALETTE[Number(e.currentTarget.dataset.pi)];
     startMaterializedDrag(e, item.make(), false);
   }
   function onStmtTileDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
-    if (drag || pieceDrag) return;
-    e.preventDefault(); e.stopPropagation();
-    closeLeafPop();
+    if (!stmtDragOpens(e)) return;
     const b = trayNodes[Number(e.currentTarget.dataset.st)];
     trayNodes.splice(trayNodes.indexOf(b), 1);
     renderSlots();
@@ -4093,7 +4075,7 @@
     }
     head.appendChild(chev);
     head.addEventListener('pointerdown', function(e){
-      if (e.button !== undefined && e.button !== 0) return;
+      if (otherButton(e)) return;
       e.preventDefault();
       panelDrag = { panel: panel, head: head, x0: e.clientX, y0: e.clientY, active: false, ph: null };
       head.setPointerCapture(e.pointerId);
@@ -4179,7 +4161,7 @@
   window.addEventListener('resize', layout);
   VARS.forEach(function(k){ state[k] = START[k]; });
   resetSpritePos();
-  buildPack();
+  renderStack();
   renderSlots();
   renderPack(); layout(); robotToBlock(0);
 })();
