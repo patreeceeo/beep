@@ -283,6 +283,19 @@
     background:var(--coral-soft) !important; color:var(--coral-deep) !important;
     border:1.5px dashed var(--coral);
   }
+  /* Phase 18: a var whose `new note` declaration is gone frays exactly as a jump
+     to a deleted flag does - same dashed coral, same "this points at nothing". */
+  .chip.lost, .token.lost{
+    background:var(--coral-soft) !important; color:var(--coral-deep) !important;
+    border:1.5px dashed var(--coral) !important;
+  }
+  /* a NOTE holding a sprite: the coral pill says sprite, the dotted underline
+     says variable - it stands for one rather than naming one */
+  .token.notetok{ border-style:dashed; }
+  .token.sprtok.mini{
+    display:inline-block; padding:0 6px; font-size:11.5px; border-width:1px;
+    box-shadow:none;
+  }
   #robot.confused svg{ animation:puzzle .55s ease-in-out 3; }
   @keyframes puzzle{
     0%,100%{ transform:rotate(0); }
@@ -1026,6 +1039,14 @@
          : op === '==' ? '=' : op === '!=' ? '\u2260' : op;
   }
   function valStr(x){ return x < 0 ? '('+x+')' : String(x); }
+  /* The runtime counterpart of typeOf: a sprite VALUE is its name (a string),
+     which is what makes `despawn <a note holding brick1>` work without the
+     engine caring where the sprite came from. */
+  function valueType(x){
+    if (typeof x === 'string')  return 'sprite';
+    if (typeof x === 'boolean') return 'boolean';
+    return 'number';
+  }
 
   // evaluate an expression/condition against the current backpack -> number | boolean
   function evalExpr(e){
@@ -1072,7 +1093,7 @@
   function htmlExpr(e, nested){
     switch(e.type){
       case 'num': return String(e.value);
-      case 'var': return chip(e.name);
+      case 'var': return varChip(e.name);
       case 'bin': { const s = htmlExpr(e.left, true) + ' ' + opGlyph(e.op) + ' ' + htmlExpr(e.right, true);
                     return nested ? '(' + s + ')' : s; }
       // a comparison binds looser than every arithmetic op, so its own operands
@@ -1116,6 +1137,17 @@
     }
     return '';
   }
+  function noteChip(name){ return '<span class="chip note-chip">'+name+'</span>'; }
+  /* Phase 18, and the FOURTH instance of the Phase-9 amendment: a var whose
+     `new note` declaration has been deleted is a dangling REFERENCE. The
+     structure is still valid, so it renders frayed rather than being repaired,
+     and `readVar` already halts Beep on it at run time. */
+  function varLost(name){
+    return VARS.indexOf(name) === -1 && !noteDecl(name);
+  }
+  function varChip(name){
+    return '<span class="chip'+(varLost(name) ? ' lost' : '')+'">'+name+'</span>';
+  }
   function condHtml(c){
     // a condition may be any boolean-typed node. Only the KEY sensor still has
     // wording of its own - everything else renders through htmlExpr.
@@ -1149,7 +1181,7 @@
       case 'return':  return '<span class="ret-arrow">\u21A9</span> return';
       case 'pack':    return 'pack ' + htmlExpr(node.expr) + ' for the visit';
       case 'unpack':  return 'unpack into ' + tgtChip(node.target);
-      case 'note':    return 'new note <span class="chip note-chip">'+node.name+'</span>';
+      case 'note':    return 'new note ' + noteChip(node.name) + ' = ' + htmlExpr(node.expr);
     }
     return '';
   }
@@ -1202,7 +1234,8 @@
     if (divByZero) return { divZero:true, flash:node.target };   // /0: refuse the write; Beep will halt
     if (lostVar) return { stuck: noNoteMsg(lostVar) };           // read a name nobody has
     if (node.clamp) v = Math.min(Math.max(v, node.clamp[0]), node.clamp[1]);
-    writeVar(node.target, v);                 // write-through: wherever that name lives
+    const wrote = writeVar(node.target, v);   // write-through: wherever that name lives
+    if (writeFailed(wrote)) return { stuck: badTypeMsg(wrote), flash:node.target };
     renderStack();
     if (node.clamp && v === old) return { bubble:'at the edge!', flash:node.target };
     return { bubble: shown + ' = ' + v, flash:node.target };
@@ -1210,7 +1243,13 @@
   /* Parcels are FIFO and live IN POUCHES (Phase 14). Dequeue lives HERE, in a
      statement, and not in an expression leaf - bubbleExpr re-evaluates
      expressions to draw the thought bubble, so an impure "next parcel" leaf
-     would pop twice per row. */
+     would pop twice per row.
+
+     Phase 18 PLANNED to tag each parcel {type, value} so a sprite parcel could
+     be told from a number one. It is not needed and was not built: a sprite
+     VALUE is its name, so `valueType` recovers the type from the value itself,
+     and sprite names are the language's only strings. A parcel stays a bare
+     value - which also keeps the pouch a plain list a learner can read. */
   function noNoteMsg(name){ return 'a note called ' + name + '? I do not have one!'; }
   /* pack fills the OPEN pouch (the one the next visit will take); unpack takes
      from the ACTIVE pouch (what this visit was handed, plus what came back to
@@ -1228,8 +1267,16 @@
   function execUnpack(node){
     const mine = activePouch().parcels;
     if (!mine.length) return { stuck:'my pouch is empty \u2014 nothing to unpack!' };
-    const val = mine.shift();
+    /* PEEK, type-check, and only THEN consume. Every other refusal in the
+       language leaves the world exactly as it found it - a /0 refuses the write,
+       a missing name refuses the read - and pc parks so the row can be fixed and
+       re-stepped. Shifting first broke that promise: a refused unpack ate the
+       parcel, so the very next step reported an empty pouch instead of the type
+       clash, and the parcel a learner was about to rescue was already gone. */
+    const val = mine[0];
     const where = writeVar(node.target, val);
+    if (writeFailed(where)) return { stuck: badTypeMsg(where), flash:node.target };
+    mine.shift();
     renderStack('out');
     return { bubble:'parcel '+val+' \u2192 '+node.target
                  + (where !== activePouch() && where !== worldPouch ? ' (down the pile!)' : ''),
@@ -1244,9 +1291,16 @@
       return { bubble: node.name + ' belongs to the world - I cannot make my own' };
     const top = activePouch();
     if (has(top.notes, node.name)) return { bubble:'I already have a note called ' + node.name };
-    top.notes[node.name] = 0;
+    // Phase 18: the seed is an ordinary expression, so it can fail the ordinary
+    // ways - a /0 or a missing name refuses the declaration exactly as it
+    // refuses a pack or a write.
+    divByZero = false; lostVar = null;
+    const val = evalExpr(node.expr);
+    if (divByZero) return { divZero:true };
+    if (lostVar) return { stuck: noNoteMsg(lostVar) };
+    top.notes[node.name] = val;
     renderStack();
-    return { bubble:'a fresh note: ' + node.name + ' = 0', flash:node.name };
+    return { bubble:'a fresh note: ' + node.name + ' = ' + valStr(val), flash:node.name };
   }
   function execCommand(node){
     const who = evalExpr(node.sprite);
@@ -1285,7 +1339,7 @@
   function return_(){ return mk({ type:'return' }); }
   function pack_(expr){ return mk({ type:'pack', expr:expr }); }
   function unpack_(name){ return mk({ type:'unpack', target:name }); }
-  function note_(name){ return mk({ type:'note', name:name }); }
+  function note_(name, seed){ return mk({ type:'note', name:name, expr: seed || num(0) }); }
   function ifKeyVisit(arrow, keyName, name){
     return mk({ type:'ifvisit', cond: keyCond(keyName, arrow), target:name });
   }
@@ -1325,8 +1379,11 @@
   // Phase 15: despawn takes a sprite VALUE, not a baked name - so a pill can be
   // dragged into it, an `x of` slot and it share the same material, and (the
   // point) a sprite can arrive from anywhere a sprite expression can.
-  function despawn_(name){ return mk({ type:'command', name:'despawn', sprite:sprite(name) }); }
-  function move_(name, x, y){ return mk({ type:'command', name:'move', sprite:sprite(name), x:x, y:y }); }
+  // Phase 18: the slot holds a sprite EXPRESSION, so these accept a name (the
+  // convenient case, for the seed program) or any sprite-typed node.
+  function spriteArg(s){ return typeof s === 'string' ? sprite(s) : s; }
+  function despawn_(s){ return mk({ type:'command', name:'despawn', sprite:spriteArg(s) }); }
+  function move_(s, x, y){ return mk({ type:'command', name:'move', sprite:spriteArg(s), x:x, y:y }); }
   function addAssign(target, a, b){ return mk({ type:'assign', target:target, expr: bin('+', v(a), v(b)) }); }
 
   // Phase 9: statements are cloneable material, like expression nodes
@@ -1338,7 +1395,7 @@
     if (b.type === 'return') return mk({ type:'return' });
     if (b.type === 'pack')   return mk({ type:'pack', expr:cloneNode(b.expr) });
     if (b.type === 'unpack') return mk({ type:'unpack', target:b.target });
-    if (b.type === 'note')   return mk({ type:'note', name:b.name });
+    if (b.type === 'note')   return mk({ type:'note', name:b.name, expr:cloneNode(b.expr) });
     if (b.type === 'ifjump') return mk({ type:'ifjump', cond:cloneNode(b.cond), target:b.target });
     if (b.type === 'assign'){
       const n = { type:'assign', target:b.target, expr:cloneNode(b.expr) };
@@ -1468,8 +1525,40 @@
        comparison may not: collapsing `A and B` leaves A, still a boolean, still
        valid where it sits - whereas collapsing `a < b` would leave a bare number
        in a boolean slot. in === out IS the always-valid invariant for bins. */
+  /* Phase 18: A NOTE'S TYPE IS ITS DECLARATION'S SEED, and one name has one
+     type across the whole program - the flag rule ("names remain the identity")
+     applied to notes. That is what lets typeOf answer at AUTHORING time, which
+     the drop gate needs: it runs on hover, long before the program runs.
+     The world's eight are numbers and are not declarable, so they answer first.
+
+     A name with no declaration in reach answers 'number', which is what every
+     var answered before this phase - so nothing about an all-numbers program
+     changes. Such a var is a DANGLING REFERENCE (Phase-9 amendment, fourth
+     instance): it renders frayed and `readVar` already halts Beep on it, so
+     brokenness is shown rather than modelled in the type system. */
+  function noteType(name){
+    if (VARS.indexOf(name) !== -1) return 'number';
+    const d = noteDecl(name);
+    return d ? typeOf(d.expr) : 'number';
+  }
+  function noteDecl(name){
+    return program.find(function(b){ return b.type === 'note' && b.name === name; }) || null;
+  }
+  // every var node in the program or the tray that reads this name
+  function noteHolders(name){
+    const out = [];
+    function walk(n){
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'var' && n.name === name){ out.push(n); return; }
+      ['left','right','operand','sprite','expr','cond','x','y'].forEach(function(f){ walk(n[f]); });
+    }
+    program.forEach(function(b){ ['expr','cond','sprite','x','y'].forEach(function(f){ walk(b[f]); }); });
+    trayNodes.forEach(walk);
+    return out;
+  }
   function typeOf(node){
     if (node.type === 'bin'){ const o = opSig(node.op); return o ? o.out : 'number'; }
+    if (node.type === 'var') return noteType(node.name);
     if (node.type === 'sprite') return 'sprite';        // Phase 12: the third type
     return (node.type === 'key' || node.type === 'touch' || node.type === 'cmp'
          || node.type === 'bool' || node.type === 'not'
@@ -1576,7 +1665,8 @@
     if (!list.length) return '<div class="parcels empty">no parcels</div>';
     return '<div class="parcels">' + list.map(function(v, i){
       return '<span class="parcel'+(i === 0 ? ' front' : '')
-           + (moved === 'in' && i === list.length - 1 ? ' just-in' : '')+'">'+v+'</span>';
+           + (moved === 'in' && i === list.length - 1 ? ' just-in' : '')
+           + '">'+noteVal(v)+'</span>';
     }).join('') + '</div>';
   }
   function noteTiles(pouch, live, hidden){
@@ -1593,8 +1683,13 @@
                      +     'value="'+val+'" aria-label="'+k+'">'
                      + '</div>';
       return '<div class="tile ro'+(shadowed ? ' shadowed' : '')+'">'
-           +   '<div class="name">'+k+'</div><div class="ro-val">'+valStr(val)+'</div></div>';
+           +   '<div class="name">'+k+'</div><div class="ro-val">'+noteVal(val)+'</div></div>';
     }).join('') + '</div>';
+  }
+  // a value as it reads in a card or a parcel: a sprite keeps its pill
+  function noteVal(val){
+    return valueType(val) === 'sprite'
+      ? '<span class="token sprtok mini">'+val+'</span>' : valStr(val);
   }
   function pouchTitle(pouch){
     if (!pouch.label) return '<span class="pouch-world">the world</span>';
@@ -1752,6 +1847,7 @@
       b.wireEl.setAttribute('d', d);
     });
     renderMarks();          // rows moved: re-pin the bookmark tokens
+    refreshNoteTiles();     // ...and a declaration may have come or gone with them
   }
   function wireZing(b){
     if (!b || !b.wireEl) return;
@@ -1813,11 +1909,26 @@
     if (!p){ lostVar = name; return 0; }        // finite, so arithmetic stays sane until the halt
     return p.notes[name];
   }
-  function writeVar(name, val){                 // returns the pouch actually written
+  /* Phase 18: the ONE runtime type check. A note is declared with a seed and
+     keeps that type for life, so a write of the wrong type is refused rather
+     than silently retyping the note under everything that reads it. `assign`
+     and `unpack` both write through here, so both are covered by these three
+     lines - the Phase-14 "one rule, every verb" idiom exactly.
+     Returns the pouch written, or a STRING describing the refusal. */
+  function writeVar(name, val){
     const p = pouchWith(name) || activePouch();
+    const had = p.notes[name];
+    if (had !== undefined && valueType(had) !== valueType(val))
+      return 'badtype:' + name + ':' + valueType(had) + ':' + valueType(val);
     p.notes[name] = val;
     return p;
   }
+  // 'a sprite in a number pocket?!' - the message for a refused write
+  function badTypeMsg(code){
+    const bits = code.split(':');
+    return 'my note ' + bits[1] + ' holds a ' + bits[2] + ', not a ' + bits[3] + '!';
+  }
+  function writeFailed(r){ return typeof r === 'string'; }
   let busy = false;         // an animated step is in flight
   let mode = 'idle';        // idle | play
   let timer = null;
@@ -2326,6 +2437,7 @@
 
   function isFocusable(b){
     return b.type === 'assign' || b.type === 'ifjump' || b.type === 'pack' || b.type === 'ifvisit'
+        || b.type === 'note'
         || (b.type === 'command' && b.sprite !== undefined);
   }
 
@@ -2356,8 +2468,25 @@
     if (s.field === 'sprite') return 'sprite';
     // touch/closing hold their two sprites in left/right, so they stay by type
     if (s.parent.type === 'touch' || s.parent.type === 'closing') return 'sprite';
-    return 'number';   // assign.expr and cmp operands
+    /* Phase 18: a declaration's seed is the ONE polymorphic slot in the language
+       - drop a sprite in and the note is a sprite note. It stops being
+       polymorphic the moment the name is in use: retyping then would silently
+       ill-type every var already reading it, so the slot quietly pins to its
+       current type, the same way a required slot quietly refuses removal. */
+    if (s.parent.type === 'note')
+      return noteHolders(s.parent.name).length ? typeOf(s.parent.expr) : 'any';
+    /* A parcel carries any value at all - the pouch does not care what is in it,
+       and `unpack` is type-checked at the DESTINATION by writeVar. So pack's
+       slot is polymorphic without qualification, unlike the seed slot, which
+       pins once its name is in use. */
+    if (s.parent.type === 'pack') return 'any';
+    // an assign's RHS is typed by its TARGET, so a sprite note takes sprites
+    if (s.parent.type === 'assign') return noteType(s.parent.target);
+    return 'number';   // cmp operands
   }
+
+  // 'any' accepts whatever it is handed; every other slot wants its own type
+  function fits(valType, slotType){ return slotType === 'any' || valType === slotType; }
 
   function justCls(n){ if (n._justSet){ n._justSet = false; return ' just-set'; } return ''; }
   /* The gold hexagon every boolean piece wears: outer span is the border ring
@@ -2444,7 +2573,11 @@
     if (node.type === 'key'){
       return hexHtml('', reg(parent, field), node, condHtml(node));
     }
-    const cls  = node.type === 'num' ? 'token num' : 'token var';
+    // a var wears the silhouette of what its note HOLDS - coral pill for a
+    // sprite note, teal box for a number - so type is legible before reading it
+    const cls  = node.type === 'num' ? 'token num'
+               : 'token ' + (noteType(node.name) === 'sprite' ? 'sprtok notetok' : 'var')
+                          + (varLost(node.name) ? ' lost' : '');
     const text = node.type === 'num' ? node.value : node.name;
     return '<span class="'+cls+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'+text+'</span>';
   }
@@ -2455,6 +2588,8 @@
       return 'if ' + nodeHtml(b.cond, b, 'cond', false) + ' visit ' + flagref(b.target);
     if (b.type === 'pack')
       return 'pack ' + nodeHtml(b.expr, b, 'expr', true) + ' for the visit';
+    if (b.type === 'note')
+      return 'new note ' + noteChip(b.name) + ' = ' + nodeHtml(b.expr, b, 'expr', true);
     if (b.type === 'command' && b.name === 'move')
       return 'move ' + nodeHtml(b.sprite, b, 'sprite', false)
            + ' to ' + nodeHtml(b.x, b, 'x', false)
@@ -2466,6 +2601,7 @@
 
   // rebuild the draggable surfaces (focused statement + tray) from current trees
   function renderSlots(){
+    refreshNoteTiles();      // a seed edit can change a note's TYPE
     for (const k in slotReg) delete slotReg[k];
     regSeq = 0;
     if (focusedBlock){
@@ -2522,9 +2658,16 @@
   /* ---------- piece drag: every valid drop SWAPS two subtrees ---------- */
   let pieceDrag = null;
 
+  /* A swap keeps both slots valid iff each node FITS the other's slot. With
+     every slot monomorphic that is the same test as "the two slots expect the
+     same type" (a slot's occupant always has the slot's type), which is what
+     this used to say - but 'any' broke the shortcut: an any-slot and a number
+     slot expect different types yet may still be swappable, and swapping a
+     SPRITE out of an any-slot into a number slot must still be refused. */
   function compatible(aEl, bEl){
-    // a swap keeps both slots' types intact only if they expect the same type
-    return expectedType(aEl.dataset.sl) === expectedType(bEl.dataset.sl);
+    const ta = expectedType(aEl.dataset.sl), tb = expectedType(bEl.dataset.sl);
+    return fits(typeOf(slotNode(aEl.dataset.sl)), tb)
+        && fits(typeOf(slotNode(bEl.dataset.sl)), ta);
   }
   // clear the brief "just placed / just changed" highlight that a render injects
   function clearJustSetSoon(){
@@ -2942,6 +3085,10 @@
                     sprite:sprite, propOf:propOf, aliveOf:aliveOf, PROPS:PROPS,
                     SPRITES:SPRITES, spriteXY:spriteXY, spriteBox:boxOf,
                     spriteAlive:spriteAlive, despawnSprite:despawnSprite,
+                    // Phase 18: the typing layer, so it can be unit-tested directly
+                    noteType:noteType, noteDecl:noteDecl, noteHolders:noteHolders,
+                    varLost:varLost, valueType:valueType, fits:fits,
+                    expectedTypeOf:function(id){ return expectedType(id); },
                     spritePos:spritePos, resetSpritePos:resetSpritePos,
                     placeSprite:function(n, x, y){ spritePos[n] = { x:x, y:y }; drawSprite(n); },
                     touchOf:touchOf, edgeOf:edgeOf, EDGES:EDGES,
@@ -2977,6 +3124,8 @@
       list.forEach(function(b){ program.push(b); buildBlock(b); });
       clearRunMemory();
       pc = 0; busy = false;
+      hideBubble();                       // a halt must not bleed across the swap
+      robot.classList.remove('confused');
       renderStack(); drawWires(); robotToBlock(0);
     },
     dropRow: function(i){                       // delete a row behind Beep's back
@@ -2984,6 +3133,10 @@
       if (b.el) b.el.remove();
       if (b.wireEl) b.wireEl.remove();
       program.splice(i, 1);
+      // the same three calls removeStmt makes, so what dangles renders as it
+      // would have if a learner had dragged the row to the Trash
+      refreshAllStmts();
+      renderSlots();
       drawWires();
     }
   };
@@ -2991,6 +3144,8 @@
     const id = slotIdOf(node);
     const inT = typeOf(node);
     const outT = id ? expectedType(id) : inT;
+    // an 'any' slot constrains nothing on the way out, so ask only about the input
+    if (outT === 'any') return OPS.concat(UNARY_OPS).filter(function(o){ return o.in === inT; });
     return OPS.concat(UNARY_OPS).filter(function(o){ return o.in === inT && o.out === outT; });
   }
   // wrap `node` in `o`: node becomes the left operand, o.identity the fresh right one
@@ -3225,6 +3380,38 @@
      A new op in OPS or variable in VARS gets a palette tile automatically. */
   const paletteEl = document.getElementById('palette');
   const PALETTE = [];
+  /* Phase 8 promised "a new variable means a new tile, automatically". Phase 14
+     added notes, which are variables the PROGRAM declares - so the promise now
+     has to survive a shelf that is built once. Note tiles are therefore not
+     PALETTE entries at all: they carry `data-note` and are synthesised on
+     pointerdown, so no index can shift under the static prototypes. */
+  let noteGroupEl = null;
+  function paletteItem(el){
+    if (el.dataset.note !== undefined){
+      const name = el.dataset.note;
+      return { kind:'value', make:function(){ return v(name); } };
+    }
+    return PALETTE[Number(el.dataset.pi)];
+  }
+  function refreshNoteTiles(){
+    if (!noteGroupEl) return;
+    const decls = program.filter(function(b){ return b.type === 'note'; });
+    noteGroupEl.style.display = decls.length ? '' : 'none';
+    const seen = [];
+    noteGroupEl.innerHTML = '<div class="pal-lbl">notes</div>';
+    decls.forEach(function(b){
+      if (seen.indexOf(b.name) !== -1) return;      // one tile per NAME
+      seen.push(b.name);
+      const t = document.createElement('span');
+      // a sprite note wears the coral pill; a number note the teal box. The
+      // silhouette says what it holds, the styling says it is a variable.
+      t.className = 'token proto ' + (typeOf(b.expr) === 'sprite' ? 'sprtok notetok' : 'var');
+      t.textContent = b.name;
+      t.dataset.note = b.name;
+      t.addEventListener('pointerdown', onPaletteDown);
+      noteGroupEl.appendChild(t);
+    });
+  }
 
   // during a palette drag "can drop here" is not the swap test: a value prototype
   // needs only the TARGET slot's type (it replaces, it does not trade), and an
@@ -3237,10 +3424,10 @@
       if (!s) return false;
       if (item.kind === 'value'){
         if (Array.isArray(s.parent)) return false;   // tray cells: use the open-area drop
-        return typeOf(pieceDrag.node) === expectedType(targetEl.dataset.sl);
+        return fits(typeOf(pieceDrag.node), expectedType(targetEl.dataset.sl));
       }
       const occ = slotNode(targetEl.dataset.sl);
-      return item.op.in === typeOf(occ) && item.op.out === expectedType(targetEl.dataset.sl);
+      return item.op.in === typeOf(occ) && fits(item.op.out, expectedType(targetEl.dataset.sl));
     }
     return compatible(dragEl, targetEl);
   }
@@ -3250,12 +3437,12 @@
     e.preventDefault(); e.stopPropagation();
     closeLeafPop();
     const src  = e.currentTarget;
-    const item = PALETTE[Number(src.dataset.pi)];
+    const item = paletteItem(src);
     const rect = src.getBoundingClientRect();
     // the ghost is a visual copy; the prototype stays on the shelf
     const ghost = src.cloneNode(true);
     ghost.classList.add('lifting');
-    ghost.removeAttribute('data-pi');
+    ghost.removeAttribute('data-pi'); ghost.removeAttribute('data-note');
     ghost.style.position = 'fixed'; ghost.style.margin = '0';
     ghost.style.width  = rect.width  + 'px'; ghost.style.height = rect.height + 'px';
     ghost.style.left   = rect.left   + 'px'; ghost.style.top    = rect.top    + 'px';
@@ -3317,7 +3504,7 @@
     }
     function tokenEl(cls, text){
       const t = document.createElement('span');
-      t.className = 'token ' + cls; t.textContent = text; return t;
+      t.className = 'token ' + cls; t.textContent = text; return t;   // shelf tiles are never lost
     }
     function predEl(node){
       const pr = document.createElement('span');
@@ -3387,6 +3574,8 @@
     });
     // Phase 9: whole statements. Every prototype arrives as a no-op: an
     // identity assign, jumps that bind to the nearest flag on landing, a fresh
+    noteGroupEl = group('notes');       // filled by refreshNoteTiles, hidden when empty
+    noteGroupEl.style.display = 'none';
     // flag, and the two atomic commands (visibly named, so opt-in behaviour).
     g = group('statements');
     function stmtProto(make){
@@ -3863,6 +4052,22 @@
     });
     setTimeout(function(){ inp.focus(); inp.select(); }, 0);
   }
+  /* Repointing an assign at a note of a DIFFERENT type would leave a number
+     expression writing into a sprite note. Rather than refuse the edit, swap
+     the RHS for the new target's identity read (`s = s`, which changes nothing
+     until tuned) and let the displaced expression retreat to the spare tiles -
+     the same "behaviour unchanged + material never lost" pair a wrap and a
+     palette drop both honour. `unpack` has no RHS, so it just repoints. */
+  function retarget(b, name){
+    const was = b.target;
+    b.target = name;
+    if (b.type !== 'assign' || was === name) return;
+    if (typeOf(b.expr) === noteType(name)) return;      // types agree: keep the work
+    const displaced = b.expr;
+    b.expr = v(name);
+    b.expr._justSet = true;
+    VERBS.stashTile(displaced);
+  }
   function openLhsPop(b, anchorEl){
     const pop = openPop(anchorEl);
     popTitle(pop, b.type === 'unpack' ? 'unpack the parcel into' : 'put the result into');
@@ -3872,7 +4077,7 @@
       if (seen.indexOf(name) !== -1) return;
       seen.push(name);
       optButton(grid, name, name === b.target, function(){
-        b.target = name;
+        retarget(b, name);
         cancelLeafPop();
         refreshRow(b);
         flashTile(name);

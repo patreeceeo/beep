@@ -13,7 +13,7 @@ reasoning, old ones keep only what is still true and still load-bearing.
   documented inline with a comment block explaining its invariant.
 - **Preview:** the in-app split view shows blank; test by opening the .html in a
   real browser (it needs real JS + keyboard/pointer input).
-- **Persisted:** `beep.html`, this file, the nine `test-*.js` suites,
+- **Persisted:** `beep.html`, this file, the ten `test-*.js` suites,
   `package.json` (+ lockfile).
 - **Generated — recreate, don't commit:** `node_modules` (`npm install`),
   `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
@@ -28,8 +28,8 @@ substitute behind.
 REFERENCE may dangle — a jump to a deleted label renders frayed with its wire
 hidden, and Beep stops confused if he tries it. The broken program stays
 runnable and steppable, so the bug is visible rather than prevented. This has
-since applied to runtime references too (Phase 13 bookmarks), three instances of
-one rule.
+since applied to runtime references too (Phase 13 bookmarks) and to a var whose
+`new note` declaration is deleted (Phase 18) — four instances of one rule.
 
 Corollaries the whole codebase leans on:
 - **One tree, three views:** display (`renderStmt`/`nodeHtml`), values (`bubbleExpr`),
@@ -43,11 +43,15 @@ Corollaries the whole codebase leans on:
 - **Key slot types on the FIELD, not the parent type.** This has bitten twice and
   silently: `ifvisit` conditions typed as number (Phase 13b) and despawn's sprite
   slot (Phase 15). `s.field === 'cond'` / `s.field === 'sprite'`, not a list of
-  parent types.
+  parent types. **The one honest exception is `expr`**, which three statements
+  share and type differently — a `note`'s seed is `'any'`, a `pack`'s is `'any'`,
+  an `assign`'s is its TARGET's type. When a field name genuinely means different
+  things in different statements, key on the parent; the rule is "key on whatever
+  actually decides", and for every other field that is the field.
 
 ## AST model (quick reference)
 - **Statements:** `label`, `goto`, `ifjump`, `ifvisit`, `visit`, `return`,
-  `assign`, `command`, `pack`, `unpack`, `note` (`new note n`). The control-flow
+  `assign`, `command`, `pack`, `unpack`, `note` (`new note n = ⟨seed⟩`). The control-flow
   grid is (one-way | comes-back) x (always | if) and all four cells are filled:
 
   |                            | always  | if        |
@@ -78,6 +82,12 @@ prototypes (`.proto:not(.stmt-tile)`) = 1 num + 8 vars + 2 keys + touch + edge +
 closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops; **12**
 statement prototypes; **4** side panels (Stage / backpack / new pieces / spare
 tiles); **4** help discs.
+
+### The four slot types
+`number` · `boolean` · `sprite` — and `any`, which is not a value type at all:
+no expression ever HAS it. It is what a SLOT says when it will take anything, and
+exactly two slots say it (a declaration's seed, and `pack`'s). `fits(valType,
+slotType)` is the one place that knows.
 
 ## THE TYPE RULE FOR BINS — read this before adding an operation
 **A `bin` may host an op iff `in === out`.** That single rule decides where every
@@ -579,7 +589,7 @@ name to find out where something is — the convention lives in the PROGRAM, whi
   bookmarks-are-nodes rule, LIFO nesting, the `/0` guards, the `expectedType` field
   keying, and both rejected Phase-14 designs.
 
-### Suite status — all nine green, **569 asserts**
+### Suite status — all ten green, **640 asserts**
 | suite | asserts | covers |
 |---|---|---|
 | `test-phase8.js` | 30 | palette, mint-on-drag, replace/wrap, shelf counts |
@@ -591,16 +601,48 @@ name to find out where something is — the convention lives in the PROGRAM, whi
 | `test-bool.js` | 84 | and/or/not, in===out, De Morgan, identity-is-a-no-op |
 | `test-sprite.js` | 94 | Phases 12 and 15–17, incl. the per-axis `isClosingOn` regressions |
 | `test-call.js` | 128 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt |
+| `test-notes.js` | 71 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels |
 
 `test-call.js` was REWRITTEN at Phase 14 (the Phase-13 pack/unpack tests are gone by
 design, not preserved).
 
-## Phase 18 — sprites go everywhere numbers go (PLANNED)
+## Phase 18 — sprites go everywhere numbers go — 18a–18c DONE, 18d deferred
 **The goal:** a sprite can sit anywhere a number can — in a note, in an assign, in
 a parcel — so `pack brick1 / visit hitBrick / unpack into b / despawn b` is a
 program a learner can build. This absorbs the doc's single remaining blocker
 (sprite-valued parcels) and two planned items (typed notes, palette tiles for
 notes) into one design.
+
+**Shipped:** the capability (18a–18c). **The seed program is untouched** and
+plays byte-identically — 18d, the hitBrick refactor, is still planned below.
+
+### What the build changed about the plan
+Three things only implementation could settle:
+- **Parcels are NOT tagged `{type, value}`.** The plan called for it; it is dead
+  weight. A sprite VALUE is its name, so `valueType(x)` recovers the type from
+  the value itself, and sprite names are the language's only strings. A parcel
+  stays a bare value, which also keeps a pouch a plain list a learner can read.
+- **Retyping a seed is a quiet REFUSAL, not a confirm dialog.** The plan's
+  primary was the label-deletion treatment (confirm, then fray the holders); the
+  fallback was a refusal. The fallback is better and it is one line: the seed
+  slot is `'any'` only while nothing reads the name, and pins to its current type
+  once something does. No dialog, no fraying, and it matches how a required slot
+  already refuses removal — the slot simply stops lighting up.
+- **A var with no declaration answers `'number'`, not a broken type.** Modelling
+  brokenness in the type system would have changed what every var answered before
+  this phase. Instead `varLost(name)` drives the frayed rendering and `readVar`
+  already halts Beep at run time — brokenness is SHOWN, not typed. The tradeoff:
+  a sprite var orphaned by a deleted declaration types as a number until the
+  reference is repaired. It is an already-broken program and it halts on the row.
+
+### A real bug the phase surfaced
+`execUnpack` shifted the parcel off the queue BEFORE writing it. With a type
+check in the write, a refused unpack ate the parcel: the next step reported "my
+pouch is empty" instead of the type clash, and the parcel a learner was about to
+rescue was already gone. Every other refusal in the language leaves the world as
+it found it — a `/0` refuses the write, a missing name refuses the read, and pc
+parks so the row can be fixed and re-stepped. Now it peeks, type-checks, and only
+then consumes. **M4 in the mutation set is that regression.**
 
 ### Most of it already exists — the plan is mostly refusing to build things
 The runtime is nearly done: **`evalExpr` already says "a sprite VALUE is its
@@ -711,30 +753,62 @@ adjacent bricks in one pass.
   leaving them visible is the curriculum; the jump-guarded shape above respects
   that decision instead of reopening it.
 
-### Staging (each lands green before the next starts)
-- **18a — types without behaviour:** seed slot on `new note` (`'any'`
-  expectedType, gate + `compatible` honour it), `typeOf(var)` by declaration
-  lookup, one-name-one-type validator, the `writeVar` type check + `STUCK`
-  door. Numbers-only programs byte-identical throughout. Known traps: name the
-  seed field `expr` so `scanDivZero`/`_initialExpr` cover it for free (`pack`
-  got both gratis for exactly that reason), and `execNote` must EVALUATE the
-  seed and refuse on `/0`/`lostVar` the way `execPack` does.
-- **18b — sprite notes in the UI:** palette tiles for declared notes, frayed
-  rendering for orphaned vars, backpack pill cards, LHS retarget
-  identity-swap.
-- **18c — typed parcels:** tag `{type, value}`, pack slot `'any'`, parcel
-  silhouettes, unpack riding the 18a check.
-- **18d — the seed payoff:** harness first, then the hitBrick routine.
-- **Mutants to seed per the house rule:** `typeOf(var)` hardcoded to number
-  again (the regression this whole phase exists to prevent); `writeVar` check
-  skipped for `unpack` (proves one-rule-every-verb); untagged parcels; a
-  retype that silently retypes holders; cross-type LHS retarget keeping the
-  old RHS; seed-slot type ignored at `execNote` time.
+### What landed, by stage
+- **18a — types (DONE).** `note_(name, seed)` with an `expr` field, so
+  `scanDivZero` / `stmtOfNode` / `collectDivZero` picked it up for free (they
+  already walk any statement's `.expr` — the same gift `pack` got). `noteType` /
+  `noteDecl` / `noteHolders`; `typeOf(var)` routes through `noteType`;
+  `fits(valType, slotType)` and an `'any'` slot type; `compatible` rewritten to
+  ask whether each node fits the OTHER slot (the old "both slots expect the same
+  type" shortcut was equivalent only while every slot was monomorphic); the
+  `writeVar` type check with `badTypeMsg`; `execNote` evaluates its seed and
+  refuses on `/0` or a missing name exactly as `execPack` does.
+- **18b — the UI (DONE).** Note tiles are **not PALETTE entries** — they carry
+  `data-note` and are synthesised on pointerdown by `paletteItem`, so no index
+  can shift under the static prototypes on a shelf that is built once.
+  `refreshNoteTiles` runs from BOTH `renderSlots` (a seed edit can change a
+  note's TYPE) and `drawWires` (a declaration can come or go with a structural
+  edit) — two hooks because they are two different edits, the second being the
+  hook `renderMarks` already rides. `varChip`/`varLost` fray an orphaned var;
+  the editable var token wears the coral pill when its note holds a sprite;
+  `noteVal` gives pouch cards and parcels their sprite pills; `retarget` swaps
+  in the new target's identity read on a cross-type LHS change and sends the
+  displaced expression to the spares.
+- **18c — parcels (DONE).** `pack`'s slot is `'any'`; parcels render their
+  silhouette through `noteVal`; `unpack` rides the 18a check. No tagging — see
+  above.
+- **18d — the seed payoff (NOT DONE, still planned).** The harness-first rule
+  and the jump-guarded shape above stand unchanged.
+
+### Verification
+`test-notes.js` — **71 asserts**, `10/10 mutants caught`: `typeOf(var)`
+hardcoded to number; the `writeVar` check removed; `unpack` not honouring the
+refusal (the one-rule-every-verb claim, broken on one door only); a refused
+unpack eating the parcel; a seed slot that never pins; `execNote` ignoring the
+seed; a cross-type retarget keeping the old RHS; a seed that is not deep-cloned;
+note tiles that never refresh; `pack` typed number-only.
+
+**Two of those mutants were MISSED by the first draft of the suite, and both
+lessons generalise.** The shared-seed mutant survived because the test edited the
+seed by DRAGGING a new pill in — a drag REPLACES the node reference on one
+statement, so a shared node never shows. Only an in-place edit (tap the pill,
+pick another sprite) mutates the node itself, which is exactly the gesture Phase
+15's T13b used. It then survived a second time because the test read the other
+row's STALE DOM: an unfocused row is not re-rendered, so it has to be focused to
+be read from its own AST. **Assert on the tree, or on a surface you have just
+forced to re-render — never on DOM that nothing asked to update.**
+
+All ten suites green: **640 asserts**, 0 stray exceptions. The seed program's
+gameplay fingerprint and all 80 chooser popovers are unchanged; the only DOM
+difference anywhere is the note shelf tile now reading `new note note = 0` and
+an empty, hidden `notes` palette group.
 
 ## Open threads / next
-**The one blocker that matters:**
-- **Sprite-valued parcels / typed notes** — now planned in full: see
-  **Phase 18** above.
+**Next up:**
+- **18d, the seed payoff** — the three brick handlers become one `hitBrick`
+  routine. The language is ready; only the seed refactor is left, and it is
+  gated on a throwaway harness first (see Phase 18's payoff section for the
+  jump-guarded shape and the two hazards it dodges).
 
 **Known limits worth fixing:**
 - **`spriteVel` is the LAST convention-bound thing left.** It reads
