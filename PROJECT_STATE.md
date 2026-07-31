@@ -51,8 +51,9 @@ Corollaries the whole codebase leans on:
 
 ## AST model (quick reference)
 - **Statements:** `label`, `goto`, `ifjump`, `ifvisit`, `visit`, `return`,
-  `assign`, `command`, `pack`, `unpack`, `note` (`new note n = ⟨seed⟩`). The control-flow
-  grid is (one-way | comes-back) x (always | if) and all four cells are filled:
+  `assign`, `command`, `pack`, `unpack`, `note` (`new note n = ⟨seed⟩`), `empty`
+  (`empty the pouch I am packing`). The control-flow grid is
+  (one-way | comes-back) x (always | if) and all four cells are filled:
 
   |                            | always  | if        |
   |----------------------------|---------|-----------|
@@ -79,7 +80,7 @@ Corollaries the whole codebase leans on:
 
 **Counts asserted by the suites** (bump them when the shelf grows): **37** piece
 prototypes (`.proto:not(.stmt-tile)`) = 1 num + 8 vars + 2 keys + touch + edge +
-closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops; **12**
+closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops; **13**
 statement prototypes; **4** side panels (Stage / backpack / new pieces / spare
 tiles); **4** help discs.
 
@@ -589,7 +590,7 @@ name to find out where something is — the convention lives in the PROGRAM, whi
   bookmarks-are-nodes rule, LIFO nesting, the `/0` guards, the `expectedType` field
   keying, and both rejected Phase-14 designs.
 
-### Suite status — all ten green, **640 asserts**
+### Suite status — all ten green, **661 asserts**
 | suite | asserts | covers |
 |---|---|---|
 | `test-phase8.js` | 30 | palette, mint-on-drag, replace/wrap, shelf counts |
@@ -601,7 +602,7 @@ name to find out where something is — the convention lives in the PROGRAM, whi
 | `test-bool.js` | 84 | and/or/not, in===out, De Morgan, identity-is-a-no-op |
 | `test-sprite.js` | 94 | Phases 12 and 15–17, incl. the per-axis `isClosingOn` regressions |
 | `test-call.js` | 128 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt |
-| `test-notes.js` | 71 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels |
+| `test-notes.js` | 92 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels; Phase 19's `empty` |
 
 `test-call.js` was REWRITTEN at Phase 14 (the Phase-13 pack/unpack tests are gone by
 design, not preserved).
@@ -804,6 +805,51 @@ difference anywhere is the note shelf tile now reading `new note note = 0` and
 an empty, hidden `notes` palette group.
 
 ## Open threads / next
+## Phase 19 — `empty the pouch I am packing` — DONE
+The only way to DISCARD staged parcels from inside the language. Until now a
+program that staged parcels and never took them anywhere had **no way back**:
+Phase 14 deliberately leaves them visible, but nothing short of Reset could
+clear them, so the pile was a failure a learner could watch and not fix. That
+hole is the reason to add the verb, independent of conditional calls.
+
+- **It empties the OPEN pouch only** — the one being packed. The active pouch is
+  off limits on purpose: those are the arguments this visit was handed, and
+  anything left in them already dies with the pouch on `return` (Phase 14, T19),
+  so the staging pouch is the only place junk can outlive the moment that made
+  it. `test-notes.js` T13c is that boundary; a mutant that empties the active
+  pouch instead reddens nine asserts.
+- **Slotless, like `return`** — kind `pack`, so it wears the teal that says "acts
+  on the pouch being packed" and inherited the family colour with no new CSS.
+- **Bubbles what it did** (`tipped out 2 parcels`), and on an already-bare pouch
+  it SAYS so rather than pretending to work — a visible no-op, not a silent one.
+
+### What it does and does not buy for conditional calls
+Placed after an `ifvisit` it is **exactly a no-op on the yes path and exactly the
+cleanup on the no path** — the mechanism being that `return` delivers results
+into the CALLER's active pouch, never the staging one, so a completed call always
+leaves a fresh staging pouch behind. T13d asserts both halves.
+
+But it is **caller cleanup, not a fix**: forgetting the row reproduces the
+original bug in full (T13e watches a stale argument poison the next visit), so
+the safety rests on a convention, and this language's whole ethos is making
+failure visible rather than trusting convention. There is also an asymmetry
+worth knowing: under `pack X / if C visit f / empty`, X is still EVALUATED on the
+no path, so a `/0` inside it halts Beep on a row that was never going to matter.
+Under the jump-guarded shape the pack never runs at all. **Jump-guarding remains
+the taught idiom for conditional calls; `empty` is the repair verb.**
+
+**The deeper reading, recorded so it is not rediscovered:** the awkwardness is
+not in the pouch model. It is that conditionality in Beep attaches to SINGLE
+STATEMENTS — there are no blocks, so any two-statement action that must happen
+atomically under a condition needs a guard jump, and pack-then-visit is only the
+case where the leftover is persistent, visible state. If that friction ever stops
+being worth its teaching value, the graduated answer is call-site arguments as
+sugar (`if C visit f with ⟨expr⟩`, evaluated only when the call fires, atomic by
+construction) — which would not replace pack/unpack, since results still ride the
+pouch home. That is a phase-sized decision, not a patch. **Auto-discarding staged
+parcels on a NO was considered and rejected:** it gives a failed condition a side
+effect on state it never touched, which is worse magic than the problem.
+
 **Next up:**
 - **18d, the seed payoff** — the three brick handlers become one `hitBrick`
   routine. The language is ready; only the seed refactor is left, and it is

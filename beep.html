@@ -1182,6 +1182,9 @@
       case 'pack':    return 'pack ' + htmlExpr(node.expr) + ' for the visit';
       case 'unpack':  return 'unpack into ' + tgtChip(node.target);
       case 'note':    return 'new note ' + noteChip(node.name) + ' = ' + htmlExpr(node.expr);
+      // says WHICH pouch in the row itself: the one being packed, not the one
+      // being unpacked from. Slotless, like `return`.
+      case 'empty':   return 'empty the pouch I am packing';
     }
     return '';
   }
@@ -1223,6 +1226,7 @@
       case 'pack':   return execPack(node);
       case 'unpack': return execUnpack(node);
       case 'note':   return execNote(node);
+      case 'empty':  return execEmpty(node);
     }
     return { bubble:'' };
   }
@@ -1286,6 +1290,31 @@
      the name lives below; without it, recursion's write-through would have
      every depth clobbering one shared note. World names are refused (the
      authoring validator never offers them; this guard is the belt and braces). */
+  /* Phase 19: the only way to DISCARD staged parcels from inside the language.
+     Until now a program could stage parcels and never take them anywhere - a
+     `pack` before an `ifvisit` that says no leaves them waiting for whichever
+     visit fires next, which silently corrupts that call's arguments. That
+     failure was visible (Phase 14 deliberately shows the staged pile) but not
+     RECOVERABLE: nothing short of Reset could clear it.
+
+     It empties the OPEN pouch only - the one being packed. The active pouch is
+     off limits on purpose: those are the arguments this visit was handed, and
+     anything left in them already dies with the pouch on `return`, so the open
+     pouch is the only place junk can outlive the moment that made it.
+
+     Note what it is NOT: it does not make a conditional call safe by itself.
+     Placed after an `ifvisit` it is exactly a no-op on the yes path (a
+     completed call always leaves a fresh staging pouch, because `return`
+     delivers into the CALLER's active pouch) and exactly the cleanup on the no
+     path - but forgetting it reproduces the bug in full. Guarding the pack with
+     a jump keeps the pack from running at all, which is stronger. */
+  function execEmpty(node){
+    const n = open.parcels.length;
+    if (!n) return { bubble:'nothing to empty - the pouch is already bare' };
+    open.parcels.length = 0;
+    renderStack();
+    return { bubble: n === 1 ? 'tipped out 1 parcel' : 'tipped out ' + n + ' parcels' };
+  }
   function execNote(node){
     if (VARS.indexOf(node.name) !== -1)
       return { bubble: node.name + ' belongs to the world - I cannot make my own' };
@@ -1319,6 +1348,7 @@
   const KIND_FOR = { label:'label', goto:'jump', ifjump:'check', assign:'assign', command:'action',
                      visit:'visit', return:'return', pack:'pack', unpack:'unpack',
                      ifvisit:'check',     // it ASKS A QUESTION; coming back is a modifier (.callrow)
+                     empty:'pack',        // it acts on the staging pouch, like pack: teal
                      note:'note' };
   function mk(node){
     node.kind = KIND_FOR[node.type];
@@ -1340,6 +1370,7 @@
   function pack_(expr){ return mk({ type:'pack', expr:expr }); }
   function unpack_(name){ return mk({ type:'unpack', target:name }); }
   function note_(name, seed){ return mk({ type:'note', name:name, expr: seed || num(0) }); }
+  function empty_(){ return mk({ type:'empty' }); }
   function ifKeyVisit(arrow, keyName, name){
     return mk({ type:'ifvisit', cond: keyCond(keyName, arrow), target:name });
   }
@@ -1393,6 +1424,7 @@
     if (b.type === 'visit')  return mk({ type:'visit', target:b.target });
     if (b.type === 'ifvisit') return mk({ type:'ifvisit', cond:cloneNode(b.cond), target:b.target });
     if (b.type === 'return') return mk({ type:'return' });
+    if (b.type === 'empty')  return mk({ type:'empty' });
     if (b.type === 'pack')   return mk({ type:'pack', expr:cloneNode(b.expr) });
     if (b.type === 'unpack') return mk({ type:'unpack', target:b.target });
     if (b.type === 'note')   return mk({ type:'note', name:b.name, expr:cloneNode(b.expr) });
@@ -3112,7 +3144,7 @@
     pc:    function(){ return pc; },
     build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_, note:note_,
              ifjump:function(cond, name){ return mk({ type:'ifjump', cond:cond, target:name }); },
-             despawn:despawn_, move:move_,
+             despawn:despawn_, move:move_, empty:empty_,
              label:label, goto_:goto_, num:num, v:v, bin:bin,
              assign:function(t, e){ return mk({ type:'assign', target:t, expr:e }); } },
     load: function(list){
@@ -3602,6 +3634,7 @@
     stmtProto(function(){ return ifVisit(keyCond('ArrowLeft','\u2190'), '?'); });
     stmtProto(function(){ return return_(); });
     stmtProto(function(){ return pack_(num(0)); });     // 0 = the honest blank, as cmp seeds its operands
+    stmtProto(function(){ return empty_(); });
     stmtProto(function(){ return unpack_('paddleX'); });
     stmtProto(function(){ return note_(uniqueNoteName()); });
   })();

@@ -63,7 +63,7 @@ function pev(type, x, y) {
 
   console.log('T1: statement shelf');
   const stmtProtos = paletteEl.querySelectorAll('.stmt-tile.proto');
-  ok(stmtProtos.length === 12, '12 statement prototypes, got ' + stmtProtos.length);
+  ok(stmtProtos.length === 13, '13 statement prototypes, got ' + stmtProtos.length);
   ok([...stmtProtos].some(t => /despawn/.test(t.textContent)), 'despawn is on the shelf (Phase 10)');
   ok([...stmtProtos].some(t => /paddleX/.test(t.textContent) && t.classList.contains('assign')),
      'identity assign on the shelf');
@@ -154,7 +154,7 @@ function pev(type, x, y) {
   // scope to the program: shelf jump prototypes are frayed BY DESIGN (bind on drop)
   ok(blocksBox.querySelector('.flagref.lost') === null, 'no frayed references remain in the program');
   ok(trayEl.children.length === 5, 'tray back to its 5 seed tiles');
-  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 12, 'statement shelf untouched');
+  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 13, 'statement shelf untouched');
 
   console.log('T11: a purely SIDEWAYS drag reaches the zones (activation fix)');
   // re-stub the tray at the same height as the grip press, so the drag has

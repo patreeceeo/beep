@@ -390,6 +390,120 @@ const clickBtn = b => safe(b).dispatchEvent(new window.MouseEvent('click', { bub
      'and the OTHER row still seeds ball - the seed was deep-cloned, not shared');
 
   // ---------------------------------------------------------------
+  /* T13: `empty the pouch I am packing` - the repair verb. Before it, a program
+     that staged parcels and never took them anywhere had NO way back: the pile
+     was visible but nothing short of Reset could clear it. */
+  console.log('T13: emptying the staging pouch');
+  C.load([ B.label('s'), B.pack(L.num(1)), B.pack(L.num(2)), B.empty() ]);
+  await sleep(20);
+  runTo(3);
+  ok(C.open().parcels.length === 2, 'two parcels staged');
+  runTo(1);
+  ok(C.open().parcels.length === 0, 'and the row tipped them out');
+
+  /* The wording is checked through execStmt rather than by stepping: stepInstant
+     is the instant path and never paints a bubble, so reading the on-screen one
+     would be reading whatever the previous test left behind. */
+  console.log('T13b: what Beep says, including the visible no-op');
+  C.load([ B.label('s'), B.pack(L.num(1)), B.pack(L.num(2)) ]);
+  await sleep(20);
+  runTo(3);
+  ok(/tipped out 2 parcels/.test(L.execStmt(B.empty()).bubble), 'he counts what he dropped');
+  ok(C.open().parcels.length === 0, 'and the pouch is bare afterwards');
+  ok(/already bare/.test(L.execStmt(B.empty()).bubble),
+     'on an empty pouch it SAYS so rather than pretending to work');
+  // stage exactly one, to check the singular wording
+  L.execStmt(B.pack(L.num(1)));
+  ok(C.open().parcels.length === 1, 'one parcel staged');
+  ok(/tipped out 1 parcel\b/.test(L.execStmt(B.empty()).bubble), 'and it counts one parcel singly');
+
+  console.log('T13c: it leaves the ACTIVE pouch alone - those are my arguments');
+  C.load([ B.label('s'), B.note('n', L.num(0)), B.pack(L.num(9)), B.visit('f'),
+           B.goto_('end'), B.label('f'), B.empty(), B.unpack('n'), B.ret(), B.label('end') ]);
+  await sleep(20);
+  runTo(6);                              // through the empty row, inside the call
+  ok(C.mine().length === 1 && C.mine()[0] === 9,
+     'the argument this visit was handed is untouched');
+  runTo(1);
+  ok(C.notesOf(0).n === 9, 'so it still unpacks');
+
+  /* T13d: the claim the verb is FOR. After a completed call the staging pouch
+     is fresh - `return` delivers into the CALLER's active pouch, never the
+     staging one - so `empty` on the taken path is exactly a no-op, and on the
+     not-taken path it is exactly the cleanup. Both paths, one row. */
+  console.log('T13d: no-op when the ifvisit fires, cleanup when it does not');
+  const guarded = (yes) => [
+    B.label('s'),
+    B.note('n', L.num(0)),               // a WORLD note, so it survives the return
+    B.pack(L.num(5)),
+    B.ifvisit(L.bool(yes), 'f'),
+    B.empty(),
+    B.goto_('end'),
+    B.label('f'), B.unpack('n'), B.pack(L.num(99)), B.ret(),
+    B.label('end')
+  ];
+  C.load(guarded(true));
+  await sleep(20);
+  runTo(8);
+  ok(C.notesOf(0).n === 5, 'YES path: the callee got its argument');
+  ok(C.mine().join() === '99', 'and its result came home to the caller');
+  runTo(1);                              // the empty row, back in the caller
+  ok(C.mine().join() === '99',
+     'the empty row did NOT touch the returned result - it is a no-op here');
+
+  C.load(guarded(false));
+  await sleep(20);
+  runTo(4);
+  ok(C.open().parcels.join() === '5', 'NO path: the argument is left staged...');
+  runTo(1);
+  ok(C.open().parcels.length === 0, '...and the empty row clears it');
+
+  console.log('T13e: without it, the stale argument poisons the NEXT visit');
+  C.load([
+    B.label('s'),
+    B.note('n', L.num(0)),
+    B.pack(L.num(5)),
+    B.ifvisit(L.bool(false), 'f'),       // does NOT fire; 5 stays staged
+    B.pack(L.num(7)),
+    B.visit('f'),
+    B.goto_('end'),
+    B.label('f'), B.unpack('n'), B.ret(),
+    B.label('end')
+  ]);
+  await sleep(20);
+  runTo(8);
+  ok(C.notesOf(0).n === 5,
+     "the second visit unpacked 5 - the FIRST call's stale argument, not its own 7");
+
+  console.log('T13f: the verb is on the shelf and drags in like any statement');
+  const emptyProto = [...document.querySelectorAll('#palette .stmt-tile.proto')]
+                       .find(el => /empty the pouch/.test(el.textContent));
+  ok(!!emptyProto, 'the shelf carries it');
+  ok(safe(emptyProto).className.includes('pack'),
+     'and it wears the pack family colour - it acts on the pouch being packed');
+  ok(!/data-sl/.test(safe(emptyProto).innerHTML), 'it is slotless, like return');
+
+  /* Slotless statements are the easy ones to get wrong in cloneStmt: `return`
+     and `empty` differ only by their type string, so a copy-paste there yields
+     a duplicate that silently becomes the OTHER verb. Duplicate the row and
+     read it back. */
+  console.log('T13g: cloneStmt keeps an empty row an empty row');
+  C.load([ B.label('s'), B.empty() ]);
+  await sleep(30);
+  const emptyRow = [...document.querySelectorAll('#blocksBox .block')]
+                     .find(el => /empty the pouch/.test(el.textContent));
+  ok(!!emptyRow, 'the row is in the program');
+  safe(emptyRow).querySelector('.grip').dispatchEvent(pev('pointerdown', 50, 100));
+  document.getElementById('blocksBox').dispatchEvent(pev('pointerup', 50, 100));
+  await sleep(30);
+  clickBtn(popButtons().find(b => b.textContent === 'duplicate'));
+  await sleep(30);
+  const emptyRows = [...document.querySelectorAll('#blocksBox .block')]
+                      .filter(el => /empty the pouch/.test(el.textContent));
+  ok(emptyRows.length === 2, 'the duplicate is an EMPTY row, not a return');
+  ok(!document.querySelector('#blocksBox .block.return'), 'and no return row appeared');
+
+  // ---------------------------------------------------------------
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();
