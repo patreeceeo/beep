@@ -105,7 +105,7 @@ async function dragStmt(srcEl, x, y) {
 
   console.log('T1: the statements are on the shelf and render their faces');
   const stmtProtos = [...paletteEl.querySelectorAll('.stmt-tile.proto')];
-  ok(stmtProtos.length === 13, '13 statement prototypes, got ' + stmtProtos.length);
+  ok(stmtProtos.length === 12, '12 statement prototypes, got ' + stmtProtos.length);
   const faces = stmtProtos.map(el => el.textContent);
   ok(faces.some(t => /^visit/.test(t)), 'a visit tile');
   ok(faces.some(t => /return/.test(t)), 'a return tile');

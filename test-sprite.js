@@ -81,6 +81,14 @@ const clickBtn = b => safe(b).dispatchEvent(new window.MouseEvent('click', { bub
           closingOf, SPRITES, PROPS, EDGES, state, cmp, bin, num, notOf, bool } = L;
 
   /* ---------------------------------------------------------------- the seam */
+  /* Phase 17: a sprite OWNS its position; a variable reaches it only through
+     `move`. These geometry tests drive the sprite directly, which is precisely
+     what `move ball to ballX, ballY` does when the program runs that row. */
+  function put(n, x, y){
+    const p = L.spritePos[n];
+    L.placeSprite(n, x === undefined ? p.x : x, y === undefined ? p.y : y);
+  }
+
   console.log('T1: the sprite literal is a THIRD value type');
   ok(typeOf(sprite('ball')) === 'sprite', 'a sprite is sprite-typed');
   ok(typeOf(num(1)) === 'number' && typeOf(bool(true)) === 'boolean',
@@ -96,21 +104,22 @@ const clickBtn = b => safe(b).dispatchEvent(new window.MouseEvent('click', { bub
   // the Phase-11c rule: a bridge can never be a bin op
   ok(!L.OPS.some(o => o.in === 'sprite'), 'no OPS entry consumes a sprite - bridges are not wrap material');
 
-  console.log('T3: `x of <sprite>` reads the live world');
-  state.ballX = 42; state.ballY = 7; state.brick2X = 88; state.paddleX = 30;
+  console.log('T3: `x of <sprite>` reads the SPRITE, not a variable (Phase 17)');
+  // A sprite owns its position now; a variable only reaches it through `move`.
+  // These set the sprite directly, which is what `move` does when it runs.
+  L.placeSprite('ball', 42, 7); L.placeSprite('brick2', 88, 6); L.placeSprite('paddle', 30, 95);
   ok(evalExpr(propOf('x', sprite('ball'))) === 42, 'x of ball = 42');
   ok(evalExpr(propOf('y', sprite('ball'))) === 7, 'y of ball = 7');
   ok(evalExpr(propOf('x', sprite('brick2'))) === 88, 'x of brick2 = 88');
   ok(evalExpr(propOf('x', sprite('paddle'))) === 30, 'x of paddle = 30');
-  state.ballX = 55;
+  L.placeSprite('ball', 55, 7);
   ok(evalExpr(propOf('x', sprite('ball'))) === 55, 'it re-reads, it does not snapshot');
-  // paddle and bricks do not move vertically, so their y is a constant - not missing
   const py = evalExpr(propOf('y', sprite('paddle')));
-  ok(typeof py === 'number' && isFinite(py), '`y of paddle` is a real constant, got ' + py.toFixed(1));
+  ok(typeof py === 'number' && isFinite(py), '`y of paddle` is a real number, got ' + py.toFixed(1));
   ok(py > 50, 'and the paddle sits low on the board, got ' + py.toFixed(1));
 
   console.log('T4: the readings COMPOSE like any other value of their type');
-  state.ballX = 42;
+  L.placeSprite('ball', 42, 7);
   ok(evalExpr(bin('+', propOf('x', sprite('ball')), num(8))) === 50, 'x of ball + 8 = 50');
   ok(evalExpr(cmp('>', propOf('x', sprite('ball')), num(40))) === true, 'x of ball > 40');
   ok(evalExpr(bin('and', aliveOf(sprite('ball')), aliveOf(sprite('paddle')))) === true,
@@ -138,32 +147,32 @@ const clickBtn = b => safe(b).dispatchEvent(new window.MouseEvent('click', { bub
   ok(EDGES.length === 4, 'four edges, got ' + EDGES.length);
   ok(EDGES.map(e => e.edge).join(',') === 'viewLeftEdge,viewRightEdge,viewTopEdge,viewBottomEdge',
      'named viewLeftEdge / viewRightEdge / viewTopEdge / viewBottomEdge');
-  state.ballX = 50; state.ballY = 50; state.ballVelocityX = 0; state.ballVelocityY = 0;
+  put('ball', 50, 50); state.ballVelocityX = 0; state.ballVelocityY = 0;
   ok(EDGES.every(e => L.edgeTouch('ball', e.edge) === false), 'mid-board touches no edge');
-  state.ballX = 0;   ok(L.edgeTouch('ball', 'viewLeftEdge') === true, 'x=0 touches the left edge');
-  state.ballX = 100; ok(L.edgeTouch('ball', 'viewRightEdge') === true, 'x=100 touches the right edge');
-  state.ballY = 0;   ok(L.edgeTouch('ball', 'viewTopEdge') === true, 'y=0 touches the top edge');
-  state.ballY = 100; ok(L.edgeTouch('ball', 'viewBottomEdge') === true, 'y=100 touches the bottom edge');
-  state.ballX = 0;   ok(L.edgeTouch('ball', 'viewRightEdge') === false, 'and the left edge is not the right one');
+  put('ball', 0);    ok(L.edgeTouch('ball', 'viewLeftEdge') === true, 'x=0 touches the left edge');
+  put('ball', 100);  ok(L.edgeTouch('ball', 'viewRightEdge') === true, 'x=100 touches the right edge');
+  put('ball', 50, 0);   ok(L.edgeTouch('ball', 'viewTopEdge') === true, 'y=0 touches the top edge');
+  put('ball', 50, 100); ok(L.edgeTouch('ball', 'viewBottomEdge') === true, 'y=100 touches the bottom edge');
+  put('ball', 0);    ok(L.edgeTouch('ball', 'viewRightEdge') === false, 'and the left edge is not the right one');
 
   console.log('T8: an edge test is a SPRITE question - any sprite can ask it');
-  state.brick1X = 0;
+  put('brick1', 0);
   ok(L.edgeTouch('brick1', 'viewLeftEdge') === true,
      'a brick at x=0 touches the left edge - impossible to express before Phase 12');
-  state.brick1X = 10;
+  put('brick1', 10);
 
   console.log('T9: isTouching is PURE OVERLAP - it knows nothing about velocity');
   /* Phase 12d moved the approach guard OUT of the engine. `isTouching` now answers
      exactly one question - are these two in the same place? - and the reason a
      collision counts lives in the PROGRAM instead (see T9c). */
-  state.ballX = 30; state.paddleX = 30; state.ballY = 95; state.ballVelocityX = 0;
+  put('ball', 30, 95); put('paddle', 30); state.ballVelocityX = 0;
   state.ballVelocityY = 3;
   const falling = evalExpr(touchOf(sprite('ball'), sprite('paddle')));
   state.ballVelocityY = -3;
   const rising = evalExpr(touchOf(sprite('ball'), sprite('paddle')));
   ok(falling === true && rising === true,
      'overlapping the paddle reads the same falling or rising - velocity is ignored');
-  state.ballX = -12; state.ballY = 50; state.ballVelocityY = 0;
+  put('ball', -12, 50); state.ballVelocityY = 0;
   [12, -12, 0].forEach(function(vx){
     state.ballVelocityX = vx;
     ok(L.edgeTouch('ball', 'viewLeftEdge') === true,
@@ -178,15 +187,15 @@ const clickBtn = b => safe(b).dispatchEvent(new window.MouseEvent('click', { bub
      while drifting sideways scored negative and the paddle passed straight
      through it. The fix picks the collision AXIS first (shallower penetration =
      the axis they have only just crossed) and asks about that axis alone. */
-  state.ballY = 93; state.ballVelocityY = 3;
+  put('ball', undefined, 93); state.ballVelocityY = 3;
   [[40,40,0],[40,40,4],[40,40,-4],[48,40,4],[48,40,-4],[35,40,-4],[33,40,4]].forEach(function(c){
-    state.ballX = c[0]; state.paddleX = c[1]; state.ballVelocityX = c[2];
+    put('ball', c[0], 93); put('paddle', c[1]); state.ballVelocityX = c[2];
     const A = L.spriteBox('ball'), B = L.spriteBox('paddle');
     if (!(A.x < B.x+B.w && A.x+A.w > B.x && A.y < B.y+B.h && A.y+A.h > B.y)) return;
     ok(evalExpr(closingOf(sprite('ball'), sprite('paddle'))) === true,
        'falling onto the paddle at ballX=' + c[0] + ' with vx=' + c[2] + ' -> closing');
   });
-  state.ballX = 40; state.paddleX = 40; state.ballVelocityX = 4; state.ballVelocityY = -3;
+  put('ball', 40, 93); put('paddle', 40); state.ballVelocityX = 4; state.ballVelocityY = -3;
   ok(evalExpr(closingOf(sprite('ball'), sprite('paddle'))) === false,
      'leaving the paddle -> NOT closing');
   ok(typeOf(closingOf(sprite('ball'), sprite('paddle'))) === 'boolean', 'it is a boolean predicate');
@@ -289,6 +298,108 @@ const clickBtn = b => safe(b).dispatchEvent(new window.MouseEvent('click', { bub
      'the guarded edge test is back');
   ok(/ball isTouching paddle and ball isClosingOn paddle/.test(body),
      'and so is the paddle row, guard included');
+
+  console.log('T13: Phase 15 - despawn holds a sprite VALUE, so pills DROP into it');
+  // the Phase-12 gap closed: despawn baked a NAME, so no sprite expression could
+  // reach it. Its slot is ordinary sprite material now.
+  const despRow = [...document.querySelectorAll('#blocksBox > .block.action')]
+    .find(el => /despawn/.test(el.textContent));
+  await tap(safe(despRow).querySelector('.content') || NIL());
+  const despSlot = safe(despRow).querySelector('.token.sprtok[data-sl]');
+  ok(!!despSlot, 'despawn exposes a live sprite slot');
+  const before13 = strip(despSlot);
+  const ballProto = [...paletteEl.querySelectorAll('.token.sprtok.proto')]
+    .find(t => strip(t) === 'ball');
+  await dragProto(ballProto, 300, 300, despSlot ? [despSlot] : []);
+  const after13 = strip(safe(despRow).querySelector('.token.sprtok[data-sl]'));
+  ok(after13 === 'ball' && before13 !== 'ball',
+     'a dragged pill replaced it: ' + before13 + ' -> ' + after13);
+  // and it RUNS: the slot is EVALUATED, not read as a literal name field
+  const C = window.__call, B = C.build;
+  const despStmt = B.despawn('paddle');
+  C.load([ despStmt, B.label('end') ]);
+  L.spriteAlive.paddle = true;
+  L.stepInstant();
+  ok(L.spriteAlive.paddle === false, 'running it despawns whatever the SLOT holds');
+  // point the SAME statement at another sprite by editing the node in its slot
+  despStmt.sprite.name = 'brick2';
+  L.spriteAlive.brick2 = true;
+  C.load([ despStmt, B.label('end') ]);
+  L.stepInstant();
+  ok(L.spriteAlive.brick2 === false, 'and it follows the slot, not a baked name');
+
+  console.log('T13b: the sprite slot is deep-cloned, so Reset can restore it');
+  // `Reset = deep-clone snapshot` covers every mutable field. Sharing the node
+  // with programSeed would let an edit to a live row corrupt the snapshot, and
+  // Reset would then restore the EDITED sprite - silently, forever.
+  document.getElementById('btnReset').dispatchEvent(new window.MouseEvent('click', { bubbles:true }));
+  await sleep(40);
+  const seedDesp = [...document.querySelectorAll('#blocksBox > .block.action')]
+    .find(el => /despawn/.test(el.textContent));
+  const originally = strip(seedDesp);
+  await tap(safe(seedDesp).querySelector('.content') || NIL());
+  const slot13b = safe(seedDesp).querySelector('.token.sprtok[data-sl]');
+  await tap(slot13b || NIL());
+  const pop13b = document.querySelector('.leaf-pop');
+  [...safe(pop13b).querySelectorAll('.opt')].find(o => o.textContent === 'ball')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles:true }));
+  await sleep(30);
+  ok(/ball/.test(safe(seedDesp).textContent), 'edited the seed row to despawn the ball');
+  document.getElementById('btnReset').dispatchEvent(new window.MouseEvent('click', { bubbles:true }));
+  await sleep(40);
+  const afterReset = [...document.querySelectorAll('#blocksBox > .block.action')]
+    .find(el => /despawn/.test(el.textContent));
+  ok(strip(afterReset) === originally,
+     'Reset restored the original sprite (' + originally + '), got ' + strip(afterReset));
+
+  console.log('T13c: ONE `move <sprite> to <x>, <y>` - explicit coordinates');
+  /* Phase 17. The engine no longer derives any sprite's position from variable
+     NAMES; a sprite owns its x,y and `move` is the only thing that changes it.
+     The convention lives in the PROGRAM (`move ball to ballX, ballY`), so any
+     variable can drive any sprite - and a brick can be moved at all, which was
+     impossible when only movePaddle/moveBall existed. */
+  const stage17 = document.getElementById('stage');
+  Object.defineProperty(stage17, 'clientWidth', { value:304, configurable:true });
+  Object.defineProperty(stage17, 'clientHeight', { value:244, configurable:true });
+
+  C.load([ B.move('brick1', num(90), num(30)), B.label('end') ]);
+  const beforeLeft = document.getElementById('brick1').style.left;
+  L.stepInstant();
+  ok(document.getElementById('brick1').style.left !== beforeLeft,
+     'move put the brick somewhere new: ' + beforeLeft + ' -> ' + document.getElementById('brick1').style.left);
+  ok(evalExpr(propOf('x', sprite('brick1'))) === 90, '`x of brick1` reports 90');
+  ok(evalExpr(propOf('y', sprite('brick1'))) === 30, '`y of brick1` reports 30 - bricks move vertically now');
+
+  console.log('T13d: the coordinates are ORDINARY EXPRESSIONS, not names');
+  // any variable can drive any sprite - nothing about this example is baked in
+  L.state.brick2X = 11;
+  C.load([ B.move('ball', bin('+', L.v('brick2X'), num(4)), num(20)), B.label('end') ]);
+  L.stepInstant();
+  ok(evalExpr(propOf('x', sprite('ball'))) === 15,
+     'the ball moved to brick2X + 4 = 15, got ' + evalExpr(propOf('x', sprite('ball'))));
+  const rep17 = L.execStmt(B.move('ball', num(7), num(8)));
+  ok(/ball/.test(rep17.bubble) && /7/.test(rep17.bubble) && /8/.test(rep17.bubble),
+     'and it reports where it put things: ' + rep17.bubble);
+
+  console.log('T13e: setting a variable does NOT move a sprite - only `move` does');
+  C.load([ B.assign('ballX', num(77)), B.move('ball', L.v('ballX'), num(20)), B.label('end') ]);
+  L.placeSprite('ball', 5, 20);
+  L.stepInstant();                                    // ballX = 77
+  ok(L.state.ballX === 77, 'the variable changed');
+  ok(evalExpr(propOf('x', sprite('ball'))) === 5, 'but the ball has not budged');
+  L.stepInstant();                                    // move ball to ballX, 20
+  ok(evalExpr(propOf('x', sprite('ball'))) === 77, 'the `move` row is what moves it');
+
+  console.log('T13f: the fresh shelf statement is an identity - it changes nothing');
+  const moveProto = [...paletteEl.querySelectorAll('.stmt-tile.proto')]
+    .find(t => /^move /.test(t.textContent));
+  ok(!!moveProto, 'a `move` tile is on the shelf: ' + strip(moveProto));
+  ok(/xof/.test(strip(moveProto)) && /yof/.test(strip(moveProto)),
+     'seeded with `x of` / `y of` itself, so dropping it in is a no-op');
+  L.placeSprite('ball', 33, 44);
+  L.execStmt(B.move('ball', propOf('x', sprite('ball')), propOf('y', sprite('ball'))));
+  ok(evalExpr(propOf('x', sprite('ball'))) === 33 && evalExpr(propOf('y', sprite('ball'))) === 44,
+     'and running it really does leave the sprite where it was');
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);

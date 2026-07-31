@@ -105,6 +105,18 @@ async function dragProto(protoEl, x, y, stack) {
   L.stepInstant();
   ok(robot.classList.contains('confused'), 'he stays confused - pc parks on the broken row');
 
+  console.log('T6: a /0 in a `move` coordinate refuses the move (Phase 17)');
+  // move's x and y are ordinary expressions, so they answer to the same rule an
+  // assign does: a poisoned coordinate refuses the write and parks Beep.
+  const C = window.__call, Bd = C.build;
+  L.placeSprite('ball', 20, 20);
+  C.load([ Bd.move('ball', bin('/', num(5), num(0)), num(30)), Bd.label('end') ]);
+  L.stepInstant();
+  ok(L.evalExpr(L.propOf('x', L.sprite('ball'))) === 20, 'the sprite did not move');
+  ok(/does not compute/.test(document.getElementById('bubble').textContent),
+     'and Beep says why: ' + document.getElementById('bubble').textContent);
+  ok(C.pc() === 0, 'pc parked on the move row');
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();

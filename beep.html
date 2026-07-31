@@ -214,6 +214,10 @@
     background:rgba(43,179,154,.20); border-color:rgba(43,179,154,.60);
     box-shadow:inset 0 2px 4px rgba(14,107,91,.22);
   }
+  .block.action .token.socket, .block.action .group.socket{
+    background:rgba(43,179,154,.20); border-color:rgba(43,179,154,.60);
+    box-shadow:inset 0 2px 4px rgba(14,107,91,.22);
+  }
   .block.pack .pred.socket{ background:rgba(43,179,154,.65); }
   .block.pack .pred.socket .pred-in{ background:rgba(43,179,154,.22); box-shadow:inset 0 2px 4px rgba(14,107,91,.22); }
   .block.focused{ box-shadow:0 0 0 2px var(--purple); z-index:4; }
@@ -776,6 +780,11 @@
   function metaOf(name){ return VAR_META[name] || { min:-99, max:99, step:1 }; }
   const STEP_PAUSE = 1050;         // how long Beep thinks at each block
   const PADDLE_STEP = 8;
+  /* The paddle's resting height, as a LITERAL the seed program passes to `move`.
+     It used to be pinned by the renderer (d.H-PADDLE_BOTTOM-PADDLE_H), which is
+     why the paddle could never be moved vertically by a program. A number in
+     the program can be edited, wrapped, or driven by a variable. */
+  const PADDLE_Y = 95;
 
   /* sprite geometry (logical coords are 0..100 in both axes) */
   const BALL_W = 22, PADDLE_W = 60, PADDLE_H = 12, BRICK_W = 46, BRICK_H = 16;
@@ -809,18 +818,34 @@
   function px(){ return { W: stage.clientWidth - 4, H: stage.clientHeight - 4 }; }
   // logical 0..100 coordinate -> pixel offset, accounting for sprite size
   function toPx(pct, size, axis){ return pct/100*(axis - size); }
-  function ballBox(){
+  /* Phase 17: A SPRITE OWNS ITS POSITION. The engine used to DERIVE every
+     sprite's coordinates from variable NAMES - ballX/ballY, paddleX plus a
+     pinned bottom, brickNX plus a fixed row - which baked this one example's
+     naming convention into the language itself. Now each sprite simply has a
+     logical x,y, and the only thing that changes it is the `move` statement.
+     The convention lives where it belongs: in the PROGRAM, which says
+     `move ball to ballX, ballY`. Any variable can drive any sprite. */
+  const SPRITE_SIZE = { ball:[BALL_W,BALL_W], paddle:[PADDLE_W,PADDLE_H],
+                        brick1:[BRICK_W,BRICK_H], brick2:[BRICK_W,BRICK_H], brick3:[BRICK_W,BRICK_H] };
+  const spritePos = {};
+  function resetSpritePos(){
     const d = px();
-    return { x: toPx(state.ballX, BALL_W, d.W), y: toPx(state.ballY, BALL_W, d.H), w: BALL_W, h: BALL_W };
+    spritePos.ball   = { x: START.ballX,   y: START.ballY };
+    // the paddle and the bricks used to be pinned by pixel constants; seed the
+    // store from those same constants so the opening frame is unchanged
+    spritePos.paddle = { x: START.paddleX, y: toPct(d.H-PADDLE_BOTTOM-PADDLE_H, PADDLE_H, d.H) };
+    [1,2,3].forEach(function(n){
+      spritePos['brick'+n] = { x: START['brick'+n+'X'], y: toPct(BRICK_Y, BRICK_H, d.H) };
+    });
   }
-  function paddleBox(){
-    const d = px();
-    return { x: toPx(state.paddleX, PADDLE_W, d.W), y: d.H-PADDLE_BOTTOM-PADDLE_H, w: PADDLE_W, h: PADDLE_H };
+  function boxOf(name){
+    const d = px(), sz = SPRITE_SIZE[name], p = spritePos[name];
+    if (!sz || !p) return { x:0, y:0, w:0, h:0 };
+    return { x: toPx(p.x, sz[0], d.W), y: toPx(p.y, sz[1], d.H), w: sz[0], h: sz[1] };
   }
-  function brickBox(n){
-    const d = px();
-    return { x: toPx(state['brick'+n+'X'], BRICK_W, d.W), y: BRICK_Y, w: BRICK_W, h: BRICK_H };
-  }
+  function ballBox(){   return boxOf('ball'); }
+  function paddleBox(){ return boxOf('paddle'); }
+  function brickBox(n){ return boxOf('brick'+n); }
   // pixel offset -> logical 0..100 (the inverse of toPx)
   function toPct(v, size, axis){ return axis === size ? 0 : v/(axis-size)*100; }
   // Phase 12: one box function per sprite NAME, so anything that needs geometry
@@ -830,17 +855,10 @@
     if (name === 'paddle') return paddleBox();
     return brickBox(Number(String(name).replace('brick', '')));
   }
-  /* a sprite's LOGICAL position, both axes in 0..100. `x` is a live backpack
-     variable for every sprite. `y` is one for the BALL only - the paddle and the
-     bricks do not move vertically, so their y is a fixture derived from the same
-     geometry that draws them. `y of paddle` is therefore a real, constant answer
-     rather than a missing one, which is the honest reading. */
+  // a sprite's LOGICAL position, both axes 0..100 - read straight off the sprite
   function spriteXY(name){
-    const d = px();
-    if (name === 'ball')   return { x: state.ballX, y: state.ballY };
-    if (name === 'paddle') return { x: state.paddleX, y: toPct(d.H-PADDLE_BOTTOM-PADDLE_H, PADDLE_H, d.H) };
-    const n = String(name).replace('brick', '');
-    return { x: state['brick'+n+'X'], y: toPct(BRICK_Y, BRICK_H, d.H) };
+    const p = spritePos[name];
+    return p ? { x: p.x, y: p.y } : { x: 0, y: 0 };
   }
   function overlaps(a, b){
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -915,26 +933,15 @@
     if (edge === 'viewBottomEdge') return p.y >= 100;
     return false;
   }
-  function moveTo(sprite){
-    const d = px();
-    if (sprite === 'ball'){
-      const el = document.getElementById('ball');
-      el.style.left = toPx(state.ballX, BALL_W, d.W) + 'px';
-      el.style.top  = toPx(state.ballY, BALL_W, d.H) + 'px';
-    } else if (sprite === 'paddle'){
-      const el = document.getElementById('paddle');
-      el.style.left = toPx(state.paddleX, PADDLE_W, d.W) + 'px';
-      el.style.top  = (d.H-PADDLE_BOTTOM-PADDLE_H) + 'px';
-    }
+  // draw a sprite where it currently IS. One function, every sprite, no names.
+  function drawSprite(name){
+    const el = document.getElementById(name);
+    if (!el) return;
+    const b = boxOf(name);
+    el.style.left = b.x + 'px';
+    el.style.top  = b.y + 'px';
   }
-  function placeBricks(){
-    const d = px();
-    [1,2,3].forEach(function(n){
-      const el = document.getElementById('brick'+n);
-      el.style.left = toPx(state['brick'+n+'X'], BRICK_W, d.W) + 'px';
-      el.style.top  = BRICK_Y + 'px';
-    });
-  }
+  function drawAllSprites(){ Object.keys(SPRITE_SIZE).forEach(drawSprite); }
   function despawnSprite(k){
     spriteAlive[k] = false;
     document.getElementById(k).classList.add('gone');
@@ -1126,9 +1133,9 @@
     return bubbleExpr(c) + '? no';
   }
   function commandHtml(node){
-    if (node.name === 'movePaddle') return chip('paddle') + ' moveTo ' + chip('paddleX');
-    if (node.name === 'moveBall')   return chip('ball') + ' moveTo ' + chip('ballX') + ', ' + chip('ballY');
-    return 'despawn <span class="chip sprite-chip">'+node.sprite+'</span>';
+    if (node.name === 'move')
+      return 'move ' + htmlExpr(node.sprite) + ' to ' + htmlExpr(node.x) + ', ' + htmlExpr(node.y);
+    return 'despawn ' + htmlExpr(node.sprite);
   }
 
   // render a whole statement to its block HTML
@@ -1246,9 +1253,16 @@
     return { bubble:'a fresh note: ' + node.name + ' = 0', flash:node.name };
   }
   function execCommand(node){
-    if (node.name === 'movePaddle'){ moveTo('paddle'); return { bubble:'scoot!' }; }
-    if (node.name === 'moveBall'){   moveTo('ball');   return { bubble:'wheee!' }; }
-    despawnSprite(node.sprite);      return { bubble:'bye bye '+node.sprite+'!' };
+    const who = evalExpr(node.sprite);
+    if (node.name === 'move'){
+      const x = evalExpr(node.x), y = evalExpr(node.y);
+      if (divByZero) return { divZero:true };
+      if (lostVar) return { stuck: noNoteMsg(lostVar) };
+      if (spritePos[who]){ spritePos[who].x = x; spritePos[who].y = y; }
+      drawSprite(who);
+      return { bubble: who + ' \u2192 ' + valStr(x) + ', ' + valStr(y) };
+    }
+    despawnSprite(who);              return { bubble:'bye bye '+who+'!' };
   }
 
   // wrap a statement node with the fields the interpreter/renderer expect
@@ -1315,9 +1329,11 @@
   function flipVelocity(vname){
     return mk({ type:'assign', target:vname, expr: bin('-', num(0), v(vname)) });
   }
-  function despawn_(sprite){ return mk({ type:'command', name:'despawn', sprite:sprite }); }
-  function movePaddle(){ return mk({ type:'command', name:'movePaddle' }); }
-  function moveBall(){ return mk({ type:'command', name:'moveBall' }); }
+  // Phase 15: despawn takes a sprite VALUE, not a baked name - so a pill can be
+  // dragged into it, an `x of` slot and it share the same material, and (the
+  // point) a sprite can arrive from anywhere a sprite expression can.
+  function despawn_(name){ return mk({ type:'command', name:'despawn', sprite:sprite(name) }); }
+  function move_(name, x, y){ return mk({ type:'command', name:'move', sprite:sprite(name), x:x, y:y }); }
   function addAssign(target, a, b){ return mk({ type:'assign', target:target, expr: bin('+', v(a), v(b)) }); }
 
   // Phase 9: statements are cloneable material, like expression nodes
@@ -1337,7 +1353,9 @@
       return mk(n);
     }
     const c = { type:'command', name:b.name };
-    if (b.sprite !== undefined) c.sprite = b.sprite;
+    if (b.sprite !== undefined) c.sprite = cloneNode(b.sprite);   // a NODE now, so deep-clone it
+    if (b.x !== undefined) c.x = cloneNode(b.x);
+    if (b.y !== undefined) c.y = cloneNode(b.y);
     return mk(c);
   }
   /* Phase 14: note names follow the flag rules (letters/digits, <=12, and
@@ -1374,10 +1392,10 @@
        left silently win - fall-through is the whole point of a call. */
     ifKeyVisit('←','ArrowLeft','goLeft'),
     ifKeyVisit('→','ArrowRight','goRight'),
-    movePaddle(),
+    move_('paddle', v('paddleX'), num(PADDLE_Y)),
     addAssign('ballX','ballX','ballVelocityX'),
     addAssign('ballY','ballY','ballVelocityY'),
-    moveBall(),
+    move_('ball', v('ballX'), v('ballY')),
     ifEdgeJump('viewLeftEdge','<','viewRightEdge','>','ballVelocityX','bounceX'),
     ifEdgeJump('viewTopEdge','<','viewBottomEdge','>','ballVelocityY','bounceY'),
     ifPaddleJump('bounceY'),
@@ -1733,9 +1751,10 @@
   }
   function wireZing(b){
     if (!b || !b.wireEl) return;
-    b.wireEl.classList.remove('zing'); void b.wireEl.getBBox;
-    b.wireEl.classList.add('zing');
-    setTimeout(function(){ b.wireEl.classList.remove('zing'); }, 720);
+    const w = b.wireEl;                      // hold the ELEMENT: b.wireEl may be
+    w.classList.remove('zing'); void w.getBBox;   // nulled by a Reset before the
+    w.classList.add('zing');                      // timer fires
+    setTimeout(function(){ w.classList.remove('zing'); }, 720);
   }
   function flagPulse(i){
     const f = program[i] && program[i].el.querySelector('.flag');
@@ -1935,6 +1954,8 @@
     program.forEach(function(b){
       if (b.expr) collectDivZero(b.expr, out);
       if (b.cond) collectDivZero(b.cond, out);
+      if (b.x) collectDivZero(b.x, out);          // `move`'s coordinates are
+      if (b.y) collectDivZero(b.y, out);          // ordinary expressions too
     });
     trayNodes.forEach(function(n){ collectDivZero(n, out); });
     return out;
@@ -1952,7 +1973,8 @@
   }
   function stmtOfNode(node){
     return program.find(function(b){
-      return (b.expr && subtreeHas(b.expr, node)) || (b.cond && subtreeHas(b.cond, node));
+      return (b.expr && subtreeHas(b.expr, node)) || (b.cond && subtreeHas(b.cond, node))
+          || (b.x && subtreeHas(b.x, node)) || (b.y && subtreeHas(b.y, node));
     }) || null;
   }
   function checkDivZeroEdit(){
@@ -2102,7 +2124,7 @@
     renderStack(); renderMarks();
     pc = 0; busy = false;
     hideBubble(); highlight(-1);
-    renderPack(); moveTo('ball'); moveTo('paddle'); placeBricks();
+    renderPack(); resetSpritePos(); drawAllSprites();
     robot.classList.remove('walking'); robot.classList.remove('leaping');
     robot.classList.remove('confused');
     robot.classList.add('home');
@@ -2131,7 +2153,11 @@
     v = Math.min(m.max, Math.max(m.min, Math.round(v)));
     state[name] = v;
     flashTile(name);
-    moveTo('ball'); moveTo('paddle'); placeBricks();     // keep the stage in sync
+    /* NOTE (Phase 17): typing a variable no longer teleports a sprite. A sprite
+       holds its own position and only `move` changes it, so the stage catches
+       up the next time the program runs that row. That is the honest reading of
+       "the program moves things", and it is what makes any variable able to
+       drive any sprite. */
     renderPack();
   }
   pack.addEventListener('input', function(e){
@@ -2295,7 +2321,8 @@
   let suppressClick = false;
 
   function isFocusable(b){
-    return b.type === 'assign' || b.type === 'ifjump' || b.type === 'pack' || b.type === 'ifvisit';
+    return b.type === 'assign' || b.type === 'ifjump' || b.type === 'pack' || b.type === 'ifvisit'
+        || (b.type === 'command' && b.sprite !== undefined);
   }
 
   // --- slot registry: rebuilt on every render of the focused stmt + tray ---
@@ -2320,10 +2347,11 @@
     // booleans. (in === out for every bin op, so this also equals typeOf the bin.)
     if (s.parent.type === 'bin'){ const o = opSig(s.parent.op); return o ? o.in : 'number'; }
     if (s.parent.type === 'not') return 'boolean';
-    // both bridges read FROM a sprite, so their operand slot is sprite-typed
-    if (s.parent.type === 'prop' || s.parent.type === 'alive'
-     || s.parent.type === 'touch' || s.parent.type === 'edge'
-     || s.parent.type === 'closing') return 'sprite';
+    // ANY `sprite` field is sprite-typed - keyed on the FIELD (the same lesson
+    // `cond` taught), so despawn's slot needed no entry in a type list
+    if (s.field === 'sprite') return 'sprite';
+    // touch/closing hold their two sprites in left/right, so they stay by type
+    if (s.parent.type === 'touch' || s.parent.type === 'closing') return 'sprite';
     return 'number';   // assign.expr and cmp operands
   }
 
@@ -2424,6 +2452,12 @@
       return 'if ' + nodeHtml(b.cond, b, 'cond', false) + ' visit ' + flagref(b.target);
     if (b.type === 'pack')
       return 'pack ' + nodeHtml(b.expr, b, 'expr', true) + ' for the visit';
+    if (b.type === 'command' && b.name === 'move')
+      return 'move ' + nodeHtml(b.sprite, b, 'sprite', false)
+           + ' to ' + nodeHtml(b.x, b, 'x', false)
+           + ', '  + nodeHtml(b.y, b, 'y', false);
+    if (b.type === 'command' && b.sprite !== undefined)
+      return 'despawn ' + nodeHtml(b.sprite, b, 'sprite', false);
     return tgtChip(b.target) + ' = ' + nodeHtml(b.expr, b, 'expr', true);
   }
 
@@ -2885,6 +2919,8 @@
                     sprite:sprite, propOf:propOf, aliveOf:aliveOf, PROPS:PROPS,
                     SPRITES:SPRITES, spriteXY:spriteXY, spriteBox:spriteBox,
                     spriteAlive:spriteAlive, despawnSprite:despawnSprite,
+                    spritePos:spritePos, resetSpritePos:resetSpritePos,
+                    placeSprite:function(n, x, y){ spritePos[n] = { x:x, y:y }; drawSprite(n); },
                     touchOf:touchOf, edgeOf:edgeOf, EDGES:EDGES,
                     spritesTouch:spritesTouch, edgeTouch:edgeTouch,
                     spritesClosing:spritesClosing, closingOf:closingOf,
@@ -2906,6 +2942,7 @@
     pc:    function(){ return pc; },
     build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_, note:note_,
              ifjump:function(cond, name){ return mk({ type:'ifjump', cond:cond, target:name }); },
+             despawn:despawn_, move:move_,
              label:label, goto_:goto_, num:num, v:v, bin:bin,
              assign:function(t, e){ return mk({ type:'assign', target:t, expr:e }); } },
     load: function(list){
@@ -3120,10 +3157,12 @@
   }
 
   // sprite: pick another one. Content-only, like every other leaf chooser.
-  /* NB: Phase 10 already defines an openSpritePop for the despawn STATEMENT's
-     chip. Duplicate function declarations are legal JS - the later one silently
-     wins - so this one carries a distinct name. It is a different thing: this
-     edits a sprite VALUE in a slot, that one repoints a statement's field. */
+  /* Phase 15 retired the twin: `openSpritePop` (Phase 10) repointed despawn's
+     BAKED sprite field, and despawn now holds a sprite VALUE in a real slot, so
+     this one chooser serves every sprite in the language. That also disarms the
+     duplicate-declaration landmine the old pair created - two same-named
+     functions are legal JS and the later silently wins, which no `node --check`
+     and no non-DOM test can catch. One name, one meaning. */
   function openSpriteValuePop(anchorEl, node){
     const pop = openPop(anchorEl);
     popTitle(pop, 'which sprite');
@@ -3386,8 +3425,9 @@
     stmtProto(function(){ return mk({ type:'ifjump', cond: keyCond('ArrowLeft','←'), target:'?' }); });
     stmtProto(function(){ return mk({ type:'goto', target:'?' }); });
     stmtProto(function(){ return label(uniqueLabelName('flag')); });
-    stmtProto(function(){ return movePaddle(); });
-    stmtProto(function(){ return moveBall(); });
+    // identity default: a fresh `move` puts a sprite exactly where it already
+    // is, so dropping one in changes nothing until you tune it
+    stmtProto(function(){ return move_('ball', propOf('x', sprite('ball')), propOf('y', sprite('ball'))); });
     stmtProto(function(){ return despawn_('brick1'); });
     stmtProto(function(){ return visit_('?'); });
     stmtProto(function(){ return ifVisit(keyCond('ArrowLeft','\u2190'), '?'); });
@@ -3701,8 +3741,9 @@
     const i = program.indexOf(b);
     program.splice(i + 1, 0, nb);
     buildBlock(nb, b.el.nextSibling);
-    nb.el.classList.add('zap');
-    setTimeout(function(){ nb.el.classList.remove('zap'); }, 600);
+    const freshEl = nb.el;
+    freshEl.classList.add('zap');
+    setTimeout(function(){ freshEl.classList.remove('zap'); }, 600);
     refreshAllStmts();
     renderSlots();
     drawWires();
@@ -3769,8 +3810,9 @@
       program.splice(program.indexOf(b) + 1, 0, nb);
       buildBlock(nb, b.el.nextSibling);
       retargetJump(b, nb.name);
-      nb.el.classList.add('zap');
-      setTimeout(function(){ nb.el.classList.remove('zap'); }, 600);
+      const fresh = nb.el;
+      fresh.classList.add('zap');
+      setTimeout(function(){ fresh.classList.remove('zap'); }, 600);
       robotToBlock(lastRobotTarget);
     });
     g2.appendChild(nf);
@@ -3863,22 +3905,10 @@
     // to a note that does not exist yet (it will when the row runs)
     program.forEach(function(o){ if (o.type === 'note') offer(o.name); });
   }
-  function openSpritePop(b, anchorEl){
-    const pop = openPop(anchorEl);
-    popTitle(pop, 'despawn which sprite?');
-    const grid = popGrid(pop);
-    SPRITES.forEach(function(k){
-      optButton(grid, k, k === b.sprite, function(){
-        b.sprite = k;
-        cancelLeafPop();
-        refreshRow(b);
-      });
-    });
-  }
   // capture phase: a chip tap must never double as a focus toggle
   blocksBox.addEventListener('click', function(e){
     if (suppressClick) return;
-    const chipEl = e.target.closest ? e.target.closest('.flagref, .flag, .tgt-chip, .sprite-chip, .note-chip') : null;
+    const chipEl = e.target.closest ? e.target.closest('.flagref, .flag, .tgt-chip, .note-chip') : null;
     if (!chipEl) return;
     const rowEl = chipEl.closest('.block');
     if (!rowEl) return;
@@ -3890,7 +3920,6 @@
     if (chipEl.classList.contains('flag'))    return openFlagPop(b, chipEl);
     if (chipEl.classList.contains('tgt-chip')) return openLhsPop(b, chipEl);
     if (chipEl.classList.contains('note-chip')) return openNotePop(b, chipEl);
-    if (chipEl.classList.contains('sprite-chip')) return openSpritePop(b, chipEl);
   }, true);
 
   /* -- materialized drags: a statement arrives as a REAL block under the
@@ -4145,10 +4174,11 @@
   /* ---------- init ---------- */
   function layout(){
     drawWires();
-    moveTo('ball'); moveTo('paddle'); placeBricks();
+    drawAllSprites();
   }
   window.addEventListener('resize', layout);
   VARS.forEach(function(k){ state[k] = START[k]; });
+  resetSpritePos();
   buildPack();
   renderSlots();
   renderPack(); layout(); robotToBlock(0);

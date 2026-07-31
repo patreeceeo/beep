@@ -44,7 +44,8 @@ substitute behind. Corollaries the whole codebase leans on:
   (always | if) and all four cells are filled.
 - Phase-8 palette: `PALETTE` entries `{kind:'value', make}` | `{kind:'op', op}` |
   `{kind:'stmt', make}` (Phase 9).
-- Nine jsdom suites, 547 asserts total; `test-call.js` (128) covers Phases 13, 13b and 14.
+- Nine jsdom suites, 569 asserts total; `test-call.js` (128) covers Phases 13, 13b and 14;
+  `test-sprite.js` (94) covers Phases 12 and 15–17.
 - jsdom suites alongside the html: `test-phase8.js` (28 asserts) and
   `test-phase9.js` (63 asserts, incl. panel fold/reorder, help popovers, menu parity, nemesis, Phase-10 chip choosers). Both must stay green; phase-8's T1/T2
   count `.proto:not(.stmt-tile)` (**32** today: 1 num + 8 vars + 8 sensors +
@@ -739,15 +740,115 @@ All nine suites green: **547** asserts.
 
 ### Still open
 - **The seed program still does not use notes or parcels.** Phase 13b's
-  blocker (no scratch variables) is GONE — `new note` is exactly that — so the
-  three brick hits are now blocked only on **sprite-valued parcels** (the belt,
-  now pouches, is numbers-only and `despawn` still bakes a name). That is the
-  next real candidate.
+  blocker (no scratch variables) is GONE — `new note` is exactly that — and
+  Phase 15 gave `despawn` a real sprite slot, so the three brick hits are now
+  blocked ONLY on sprite-valued parcels.
 - A loadable factorial EXAMPLE (content, not code — the app has no
   program-switching UI, which is its own small feature).
 - Named parameters on the pouch card ("expects: n") — a contract surface that
   falls out naturally now that cards exist.
 - Tail calls (the pile that never grows); typed notes; palette tiles for notes.
+
+## Phases 15 & 16 — every sprite is a VALUE now (`despawn`, then `moveTo`) — DONE
+### Phase 15 — `despawn` takes a SPRITE, not a name
+The last place a sprite was still a string baked into a statement. It is a real
+slot now: `despawn{sprite:<sprite node>}`, so a pill drags into it, `x of` and
+it share the same material, and a sprite can arrive from anywhere a sprite
+expression can. This was the Phase-12 loose end and Phase 14's stated blocker.
+
+- **`expectedType` needed ONE line, keyed on the FIELD:** `s.field === 'sprite'`
+  → `'sprite'`, replacing the list of parent types (prop/alive/edge all use that
+  field; touch/closing keep their `left`/`right` by parent type). **This is the
+  second time that exact lesson has paid** — `cond` taught it in Phase 13b, when
+  `ifvisit` silently got number-typed conditions. Key slot types on the FIELD.
+- `execCommand` EVALUATES the slot (`evalExpr(node.sprite)`) instead of reading
+  a field; `cloneStmt` deep-clones it; `isFocusable` grew a despawn case;
+  `focusedHtml` renders the slot; `.block.action` got the socket hues.
+- **A landmine was defused.** Phase 10's `openSpritePop` (repoint despawn's
+  baked field) and Phase 12's `openSpriteValuePop` (edit a sprite VALUE) were
+  twin same-named-ish choosers; the doc's own "Gotcha found the hard way" is
+  about exactly that duplicate-declaration hazard. The Phase-10 one is now
+  DELETED along with the `.sprite-chip` class — despawn's sprite answers to the
+  same pill tap as every other sprite. One name, one meaning.
+
+### A pre-existing bug found by the test noise
+`wireZing` captured the STATEMENT and re-read `b.wireEl` inside its 720ms
+timer; Reset and `__call.load` both null that field, so the callback threw.
+Uncaught in a timer, so no assertion ever failed — it showed up only as 31
+stray TypeErrors in test output at HEAD (59 after this phase's extra loads).
+Fixed by holding the ELEMENT rather than a path to it, same for two `nb.el`
+zap timers. **Test output is now 0 exceptions across all nine suites** — worth
+keeping that way, since this class of bug is invisible to assertions.
+
+### Verification
+`test-sprite.js` 77 → 83: despawn exposes a live slot, a dragged pill replaces
+it, running it despawns whatever the SLOT holds (and follows an edit), and
+**T13b** — edit the seed row, Reset, assert the original sprite returns, which
+is the only test that catches a shared (non-cloned) sprite node corrupting the
+`programSeed` snapshot. `test-phase9` T16 rewritten to the pill gesture.
+**4/4 despawn mutants caught** (name-not-evaluated, sprite slots untyped,
+shared clone, not focusable) — the shared-clone one MISSED until T13b was
+written, which is why it exists. All nine suites green: **555**. Gameplay
+byte-identical to HEAD across idle/left/right runs.
+
+### Phases 16–17 — ONE `move <sprite> to <x>, <y>`, with explicit coordinates
+**Phase 16 was a design decision taken without asking, and it was the wrong
+call to make unilaterally.** Collapsing `movePaddle`/`moveBall` into
+`moveTo <sprite>` looked like the same mechanical fix as despawn, but it
+QUIETLY KEPT the real problem: the engine still derived every sprite's
+position from variable NAMES (`ballX`/`ballY`, `paddleX` plus a pinned bottom,
+`brickNX` plus a fixed row). That is this one example's naming convention
+baked into the language. Patrick's correction (Phase 17): **the parameters
+must be explicit**, because the goal is that anything be expressible.
+
+**The model now:** a sprite OWNS its position (`spritePos`, logical 0..100 for
+all five). Variables are just numbers the program manipulates. `move` is the
+one moment a variable's value is pushed into a sprite. Nothing in the engine
+reads a variable by name to find out where something is — the convention lives
+in the PROGRAM, which says `move ball to ballX, ballY`.
+- **`{type:'command', name:'move', sprite, x, y}`** — three real slots, and the
+  coordinates are ordinary number expressions, so `move ball to brick2X + 4, 20`
+  works. `x of` / `y of` read the sprite, so they compose straight back in.
+- **`spriteXY` / `ballBox` / `paddleBox` / `brickBox` all collapse into one
+  `boxOf(name)`** over the store; `placeBricks` and the old per-name `moveTo`
+  renderer are gone, replaced by `drawSprite` / `drawAllSprites`.
+- **The paddle's y is a LITERAL in the seed** (`move paddle to paddleX, 95`),
+  Patrick's call. It used to be pinned by the renderer, which is exactly why
+  no program could ever move the paddle vertically. Cost: it no longer
+  re-pins on resize. Gameplay is nonetheless **byte-identical** to HEAD across
+  idle/left/right runs — 95 vs the computed 94.74 changed no collision.
+- **A CONSEQUENCE WORTH KNOWING:** typing a variable in the backpack no longer
+  teleports its sprite. Positions are the sprite's own and only `move` changes
+  them, so the stage catches up the next time that row runs (instantly during
+  Play; visibly lagging when paused). That is the honest reading of "the
+  program moves things" and it is the price of any-variable-drives-any-sprite.
+- Fresh shelf statement is an **identity**: `move ball to x of ball, y of ball`
+  changes nothing until tuned — the always-valid invariant, honoured with
+  pieces that already existed. Shelf protos 13 → 12.
+- `collectDivZero` / `stmtOfNode` walk `b.x` / `b.y`, so a `/0` in a coordinate
+  refuses the move and parks Beep exactly as it does in an assign.
+- `test-sprite.js` 88 → 94 and `test-diverror.js` 15 → 18. The geometry tests
+  had to be rewritten: they used to set `state.ballX` and read `x of ball`,
+  which SILENTLY encoded the old coupling. **T13e is the new keystone** —
+  setting a variable does not move the sprite; the `move` row does.
+  **6/6 move mutants caught** (coordinates ignored, x/y swapped, spriteXY
+  reading names again, no redraw, `/0` let through, coordinate slots not
+  cloned). All nine suites green: **569**.
+
+### Still open
+- **Sprite-valued parcels** — pouches are still numbers-only, so the three
+  brick hits still cannot be one routine. This is the SINGLE remaining blocker:
+  `pack brick1` / `unpack into <sprite note>` would finish it, which needs
+  typed notes as well as typed parcels.
+- **`spriteVel` is the LAST convention-bound thing left.** It still reads
+  `state.ballVelocityX/Y` BY NAME, so `isClosingOn` only really works for the
+  ball. Now that sprites own their positions, the fix the doc has proposed
+  since Phase 12 is finally cheap: cache each sprite's position per pass and
+  derive velocity from the delta — convention-free, works for any sprite moved
+  by any means.
+- **A plain-English pass over all syntax** is planned (Patrick): the language
+  should read like `move ball to 10, 20` rather than like code. `move` was
+  named with that in mind; `pack`/`unpack`/`visit` will want revisiting.
 
 ## Open threads / next
 - ~~"Fill a slot with a variable"~~ solved by Phase 8: drag the variable's palette
@@ -822,8 +923,7 @@ All nine suites green: **547** asserts.
   - ~~a sprite/point TYPE~~ **DONE (Phase 12, this session)** — see the Sprite
     section above. The registries took it without a fight: `typeOf`/`expectedType`
     grew one branch each, and both bridges reused the `cmp` delivery route wholesale.
-  - **Still open in Phase 12:** `despawn`'s sprite and the `movePaddle`/`moveBall`
-    commands still bake a sprite NAME (despawn keeps its Phase-10 chip chooser).
-    Converting them to real sprite SLOTS — and collapsing the two move commands into
-    one `moveTo <sprite>` — is the obvious finish, and `moveTo(sprite)` is already
-    written to take a name. Nothing depends on it; the type is complete without it.
+  - ~~**Still open in Phase 12:** despawn's sprite and the movePaddle/moveBall
+    commands still bake a sprite NAME~~ **DONE in Phases 15 & 16** — all three
+    became sprite SLOTS, the two move commands collapsed into one
+    `moveTo <sprite>`, and the Phase-10 chip chooser was retired. See below.

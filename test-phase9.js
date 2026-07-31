@@ -63,7 +63,7 @@ function pev(type, x, y) {
 
   console.log('T1: statement shelf');
   const stmtProtos = paletteEl.querySelectorAll('.stmt-tile.proto');
-  ok(stmtProtos.length === 13, '13 statement prototypes, got ' + stmtProtos.length);
+  ok(stmtProtos.length === 12, '12 statement prototypes, got ' + stmtProtos.length);
   ok([...stmtProtos].some(t => /despawn/.test(t.textContent)), 'despawn is on the shelf (Phase 10)');
   ok([...stmtProtos].some(t => /paddleX/.test(t.textContent) && t.classList.contains('assign')),
      'identity assign on the shelf');
@@ -154,7 +154,7 @@ function pev(type, x, y) {
   // scope to the program: shelf jump prototypes are frayed BY DESIGN (bind on drop)
   ok(blocksBox.querySelector('.flagref.lost') === null, 'no frayed references remain in the program');
   ok(trayEl.children.length === 5, 'tray back to its 5 seed tiles');
-  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 13, 'statement shelf untouched');
+  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 12, 'statement shelf untouched');
 
   console.log('T11: a purely SIDEWAYS drag reaches the zones (activation fix)');
   // re-stub the tray at the same height as the grip press, so the drag has
@@ -295,9 +295,19 @@ function pev(type, x, y) {
   await sleep(30);
   ok(assignRow.querySelector('.tgt-chip').textContent === 'brick1X', 'assign now writes into brick1X');
 
+  // Phase 15: despawn holds a sprite VALUE in a real slot, not a baked name, so
+  // it is focused and its PILL is tapped - the same gesture every other sprite
+  // in the language answers to (the Phase-10 chip chooser is retired).
   const despawnRow = [...blocksBox.querySelectorAll(':scope > .block.action')]
     .find(el => /despawn/.test(el.textContent));
-  despawnRow.querySelector('.sprite-chip').dispatchEvent(click());
+  despawnRow.querySelector('.content').dispatchEvent(click());
+  await sleep(30);
+  ok(despawnRow.classList.contains('focused'), 'despawn focuses like any row with a slot');
+  const spritePill = despawnRow.querySelector('.token.sprtok[data-sl]');
+  ok(spritePill !== null, 'its sprite is a live, draggable slot');
+  spritePill.dispatchEvent(pev('pointerdown', 5, 5));
+  document.dispatchEvent(pev('pointerup', 5, 5));
+  spritePill.dispatchEvent(click());
   await sleep(30);
   pop15 = document.querySelector('.leaf-pop');
   ok([...pop15.querySelectorAll('.opt')].some(o => o.textContent === 'paddle')
@@ -305,7 +315,7 @@ function pev(type, x, y) {
      'sprite chooser offers paddle and ball, not just bricks');
   [...pop15.querySelectorAll('.opt')].find(o => o.textContent === 'paddle').dispatchEvent(click());
   await sleep(30);
-  ok(despawnRow.querySelector('.sprite-chip').textContent === 'paddle', 'despawn now takes the paddle');
+  ok(/paddle/.test(despawnRow.textContent), 'despawn now takes the paddle: ' + despawnRow.textContent.trim());
 
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
