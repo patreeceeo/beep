@@ -595,12 +595,146 @@ name to find out where something is — the convention lives in the PROGRAM, whi
 `test-call.js` was REWRITTEN at Phase 14 (the Phase-13 pack/unpack tests are gone by
 design, not preserved).
 
+## Phase 18 — sprites go everywhere numbers go (PLANNED)
+**The goal:** a sprite can sit anywhere a number can — in a note, in an assign, in
+a parcel — so `pack brick1 / visit hitBrick / unpack into b / despawn b` is a
+program a learner can build. This absorbs the doc's single remaining blocker
+(sprite-valued parcels) and two planned items (typed notes, palette tiles for
+notes) into one design.
+
+### Most of it already exists — the plan is mostly refusing to build things
+The runtime is nearly done: **`evalExpr` already says "a sprite VALUE is its
+name"** (`case 'sprite': return e.name`), every sprite slot already evaluates its
+contents (`despawn`/`move`/`x of`/`is alive`/`touch`/`closing`/`edge` all call
+`evalExpr` on the slot), and `readVar`/`writeVar` move values without caring what
+they are. Put the name string `'brick1'` in a note today and `despawn ⟨that var⟩`
+would very nearly work. What is actually missing is exactly three things: an
+answer for `typeOf(var)` other than the hardcoded `'number'`, a way for a note to
+BE sprite-typed, and a type tag on parcels. Everything else — the drag gate, the
+pill silhouette, the replace verb, the choosers — serves sprites already and just
+needs the type system to route through it.
+
+### The one rule everything hangs on: a note never changes type
+`typeOf` must answer at AUTHORING time (the drop gate runs on hover), so a var
+node needs a type before the program runs. The rule: **a note's type is fixed at
+creation, and one name has one type across the whole program** — the same shape
+as "names remain the identity" for flags, and it makes both layers cheap:
+- **Authoring:** `typeOf(var)` = look the name up — in `VARS` → number; else find
+  the program's `new note` declaration and take the type of its SEED. One source
+  of truth, no type stamps on nodes. Deleting the declaration out from under
+  var nodes is the Phase-9 amendment yet again (fourth instance): the pills
+  render frayed like a lost flagref, and at run time `readVar` already halts
+  Beep via `lostVar`. Nothing new to build for the failure case.
+- **Runtime:** ONE check in `writeVar` — refuse a value whose type differs from
+  the note's current value's type, halt confused ("a sprite in a number
+  pocket?!" — a new `STUCK` door). Because `assign` and `unpack` both write
+  through `writeVar`, both are covered by the same line — the Phase-14 "one
+  rule, every verb" idiom exactly. World variables are numbers, so
+  `unpack into paddleX` with a sprite parcel halts visibly instead of breaking
+  the paddle.
+
+### Where a sprite note comes from: the declaration grows a SEED SLOT
+`new note n` currently seeds 0 with no slot. It becomes **`new note n = ⟨0⟩`** —
+one ordinary expression slot, which buys three things at once:
+- **The slot IS the type declaration.** Drop a sprite pill in and the note is
+  sprite-typed; drop a yes/no in and booleans ride along for free. No new
+  keyword, no type dropdown — choosing the seed is choosing the type, visible
+  right on the row.
+- It is the language's ONLY polymorphic slot (`expectedType` → `'any'`, a new
+  value the gate honours; every other slot stays exactly as typed as it is).
+- `pack`'s slot becomes `'any'` the same way — that is the whole "pack a sprite"
+  feature. The shelf proto still seeds `0`.
+Retyping a seed while the name is in use elsewhere would silently ill-type every
+var node holding that name, so: **retype = the label-deletion treatment.**
+Confirm dialog with the holders highlighted; confirmed → those vars fray. (The
+cheaper alternative — refuse the edit outright while holders exist — is the
+fallback if the fray path fights back; a required-slot-style quiet refusal is
+one line.)
+
+### The UI is already built — reuse, verbatim
+This is the deliberate centre of the design: **the gesture a learner already
+knows from `move`/`despawn` IS the whole interface.** A sprite slot takes a
+dragged pill; a sprite variable is just one more pill to drag.
+- **Palette:** a declared sprite note gets a tile automatically — same scan that
+  fills `openLhsPop`'s list (`program` for `note` rows), same "new variable ⇒
+  tile appears" promise Phase 8 made. It renders as a coral PILL in var styling:
+  silhouette says sprite, styling says variable. Minting it makes an ordinary
+  `v(name)` node; `typeOf` routes it to sprite slots and nowhere else. **No new
+  payload, no new target, no new DROP_TABLE row** — the drop model's fourth
+  free ride.
+- **assign:** the LHS `tgt-chip` chooser gains nothing new — it already lists
+  declared notes. Picking a target of a DIFFERENT type replaces the RHS with the
+  new target's identity read (`s = s`), and the displaced RHS retreats to the
+  spare tiles — the same "behaviour unchanged until tuned + material never lost"
+  pair every other edit honours. No new shelf proto: sprite assigns are reached
+  by retargeting the one assign that exists.
+- **unpack:** the same chooser via the same chip; the runtime `writeVar` check
+  does the rest.
+- **Backpack:** a sprite note's card shows the pill of its current value
+  (read-only, struck through when shadowed, like every pouch note). Only world
+  notes have live inputs, and world notes are all numbers, so `VAR_META` and the
+  number widget never meet a sprite.
+- **Bubbles and parcels:** `bubbleExpr` substitutes the name into the thought
+  bubble; a parcel renders as a mini pill. Parcels become tagged
+  (`{type, value}`) rather than raw — `parcelStrip` needs the tag anyway to
+  draw the silhouette, and the doc predicted this shape in Phase 13.
+
+### The payoff program — with the Phase-13b hazard confronted, not repeated
+The three brick handlers become one routine. But two measured facts from 13b
+still bind: converting the callers to bare `ifvisit`s breaks the mutual
+exclusion that stops a double bounce, AND a `pack` before an `ifvisit` that says
+NO leaves the argument staged — poisoning the next visit's parcels (T19b's
+wrinkle made fatal). The shape that avoids both is jump-guarded packing:
+
+    if not (ball isTouching brick1) jump skip1
+    pack brick1 / visit hitBrick
+    ⚑ skip1  ... (same for 2, 3)
+
+    ⚑ hitBrick / new note b = ⟨ball⟩ / unpack into b
+    despawn b / ballVelocityY = 0 − ballVelocityY / return
+
+`pack` only runs when the visit WILL fire, and a hit can `jump done` past the
+remaining checks to keep at-most-one-per-pass. Costs `not` and a label per
+brick; buys one handler instead of three and the first seed use of notes AND
+parcels. **Prototype it in a throwaway harness before committing the seed**
+(the 13b rule) — the double-hit case to reproduce is the ball spanning two
+adjacent bricks in one pass.
+
+### Deliberately NOT in this phase
+- **Sprite equality** (`⟨s⟩ is ⟨brick1⟩` → boolean) — the natural "which brick
+  did I catch?" test. It is a fourth two-sprite bridge and would ship through
+  the same `cmp`-style delivery route in an afternoon, but nothing in the
+  payoff program needs it. Listed, not built.
+- **Sprite-typed world variables** — the world's eight numbers are load-bearing
+  game state; nothing needs a world sprite.
+- **`ifvisit` argument staging** (a NO discarding staged parcels) — 13b decided
+  leaving them visible is the curriculum; the jump-guarded shape above respects
+  that decision instead of reopening it.
+
+### Staging (each lands green before the next starts)
+- **18a — types without behaviour:** seed slot on `new note` (`'any'`
+  expectedType, gate + `compatible` honour it), `typeOf(var)` by declaration
+  lookup, one-name-one-type validator, the `writeVar` type check + `STUCK`
+  door. Numbers-only programs byte-identical throughout. Known traps: name the
+  seed field `expr` so `scanDivZero`/`_initialExpr` cover it for free (`pack`
+  got both gratis for exactly that reason), and `execNote` must EVALUATE the
+  seed and refuse on `/0`/`lostVar` the way `execPack` does.
+- **18b — sprite notes in the UI:** palette tiles for declared notes, frayed
+  rendering for orphaned vars, backpack pill cards, LHS retarget
+  identity-swap.
+- **18c — typed parcels:** tag `{type, value}`, pack slot `'any'`, parcel
+  silhouettes, unpack riding the 18a check.
+- **18d — the seed payoff:** harness first, then the hitBrick routine.
+- **Mutants to seed per the house rule:** `typeOf(var)` hardcoded to number
+  again (the regression this whole phase exists to prevent); `writeVar` check
+  skipped for `unpack` (proves one-rule-every-verb); untagged parcels; a
+  retype that silently retypes holders; cross-type LHS retarget keeping the
+  old RHS; seed-slot type ignored at `execNote` time.
+
 ## Open threads / next
 **The one blocker that matters:**
-- **Sprite-valued parcels.** Pouches are numbers-only, so the three brick hits still
-  cannot be one routine. `pack brick1` / `unpack into <sprite note>` would finish it,
-  which needs typed notes as well as typed parcels. This is the single remaining
-  reason the seed program uses no notes or parcels.
+- **Sprite-valued parcels / typed notes** — now planned in full: see
+  **Phase 18** above.
 
 **Known limits worth fixing:**
 - **`spriteVel` is the LAST convention-bound thing left.** It reads
@@ -634,4 +768,7 @@ design, not preserved).
 - Auto-open the fresh operand's editor after wrap? Currently flash-only.
 - Undo stack + JSON export/import (both cheap on top of the verbs — see the drop
   model section). Drop-model Stage 3, only if a phase demands it.
-- Tail calls (the pile that never grows); typed notes; palette tiles for notes.
+- Tail calls (the pile that never grows). (Typed notes and palette tiles for
+  notes moved into the Phase 18 plan.)
+- Sprite equality (`⟨s⟩ is ⟨brick1⟩`) — deferred out of Phase 18, see its
+  "deliberately NOT" list.
