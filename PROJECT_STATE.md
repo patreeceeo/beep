@@ -78,7 +78,8 @@ Corollaries the whole codebase leans on:
 - **Palette:** `PALETTE` entries are `{kind:'value', make}` | `{kind:'op', op}` |
   `{kind:'stmt', make}`; the variable tiles derive from `VARS`.
 - **Testing seams:** `window.__lang` (evaluation), `window.__drop` (verb table +
-  gate), `window.__call` (install a small program and drive it with `stepInstant`).
+  gate), `window.__call` (install a small program and drive it with
+  `stepInstant`), `window.__ctx` (Phase 21's execution contexts).
 
 **Counts asserted by the suites** (bump them when the shelf grows): **40** piece
 prototypes (`.proto:not(.stmt-tile)`) = 1 num + 2 keys + touch + edge + closing
@@ -648,7 +649,7 @@ name to find out where something is — the convention lives in the PROGRAM, whi
   bookmarks-are-nodes rule, LIFO nesting, the `/0` guards, the `expectedType` field
   keying, and both rejected Phase-14 designs.
 
-### Suite status — all ten green, **839 asserts**
+### Suite status — all ten green, **872 asserts**
 | suite | asserts | covers |
 |---|---|---|
 | `test-phase8.js` | 30 | palette, mint-on-drag, replace/wrap, shelf counts |
@@ -659,7 +660,7 @@ name to find out where something is — the convention lives in the PROGRAM, whi
 | `test-compare.js` | 81 | comparisons: eval, flip-is-negation, drop, refusals |
 | `test-bool.js` | 84 | and/or/not, in===out, De Morgan, identity-is-a-no-op |
 | `test-sprite.js` | 239 | Phases 12, 15–17 and **20**, incl. the per-axis `isClosingOn` regressions |
-| `test-call.js` | 130 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt |
+| `test-call.js` | 163 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt; **Phase 21's contexts** |
 | `test-notes.js` | 112 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels; Phase 19's `empty`; **Phase 20e's "no world variables"** |
 
 `test-call.js` was REWRITTEN at Phase 14 (the Phase-13 pack/unpack tests are gone by
@@ -912,7 +913,7 @@ pouch home. That is a phase-sized decision, not a patch. **Auto-discarding stage
 parcels on a NO was considered and rejected:** it gives a failed condition a side
 effect on state it never touched, which is worse magic than the problem.
 
-## Phase 20 — sprite CLASSES and INSTANCES — DONE (20a/20b/20c)
+## Phase 20 — sprite CLASSES and INSTANCES — DONE (20a–20e)
 The first half of `PLAN-sprites-events.md`. Five hardcoded sprites become
 **three classes and five instances**, and the language gains the two pieces the
 event runtime will need: a way to MAKE a sprite and a way to PUT IT ON the
@@ -1218,11 +1219,112 @@ retirement of the static pills and legacy names, and the `spriteVel` fix. What
 is left for 24 is the EVENT half — walls as sprites, per-class scripts, the
 overlap vector — which needs 21–23 first.
 
+## Phase 21 — EXECUTION CONTEXTS — DONE
+A pure refactor, and the last one before the event engine. `pc`, `pouches` and
+`open` were module globals: **one interpreter state for one script**, which is
+exactly the assumption Phase 22 breaks. They are a CONTEXT now — everything Beep
+needs in order to be somewhere:
+
+    { script, self, pc, pouches, open, queue, idle }
+
+The scene has one. Every instance has one. `cur` is the context the interpreter
+is running RIGHT NOW, and that is what kept the diff small: `readVar`,
+`writeVar` and `nextPc` kept their shapes and simply say `cur.pouches` where
+they used to say `pouches`. **All ten suites passed on the first run and the
+trajectory hash is unchanged** — which is the only claim a refactor gets to
+make.
+
+### THERE IS NO WORLD POUCH — Patrick's correction, and it is the phase
+The first draft spliced a shared `worldPouch` singleton into index 0 of every
+context. Patrick's objection: *dynamic scope is the rule for all contexts, so
+each context should point at the context that spawned it until we reach the
+original one.* That is right, and the reason is that the first draft left the
+language with **two scoping mechanisms** — a pile within a context, and a magic
+shared floor across them. Dynamic scope should be the only rule.
+
+So every context is uniformly `[ its own base pouch, ...its frames ]`, and a
+lookup that runs off the bottom **continues in the context that spawned it**, up
+to the scene, which has no parent. **"The world" stopped being an engine
+object**: it is just the root context's base pouch — exactly what the `new note`
+rows at the top of the seed write into. `worldPouch` survives only as a local
+alias for `scene.pouches[0]`, because "the world" is still the right word for
+what a learner sees, and its notes are still `state` by identity.
+
+This is the same correction Phase 20e made one level down, and it lands in the
+same place: **the thing that looked like engine property was the program's all
+along.** Worth noticing as a pattern — twice now the residue of an old design
+survived a phase as a special-cased object that nothing needed.
+
+**Two decisions inside it** (Patrick's, with the trade-offs on the table):
+- **A child sees its parent's WHOLE LIVE PILE**, frames included — the simplest
+  statement of the rule and truly dynamic. Under Phase 22's run-to-completion a
+  parent is always at rest when a child runs, so a child sees its ancestors'
+  NOTES and never a half-finished visit of theirs. It is still a commitment: what
+  a child can see would depend on where its parent was paused, if one ever ran.
+- **An instance's parent is whichever context ran `a new ⟨Class⟩`** — literally
+  the context that spawned it. For the seed that is always the scene, but a
+  sprite made by another sprite's script can see that sprite's notes, which is
+  what makes the chain mean something. **Known wrinkle:** the link keeps a
+  destroyed instance's notes reachable by its children. Nothing depends on it.
+
+### `eachInReach` is the ONE scope walk
+The reader (`pouchWith`), the backpack (both views), and the name chooser all go
+through it, so the picture cannot disagree with the language.
+
+### Isolation is STRUCTURAL, not a discipline
+`makeCtx` builds a fresh pouches array, a fresh base pouch and a fresh staging
+pouch every time, so two contexts cannot share a frame list even by accident —
+Phase 13's nastiest failure mode, at the larger scale where scripts run side by
+side. The plan named this as the phase's mutation target and it goes red loudly.
+Sharing now happens the honest way: **by being above someone in the chain.**
+
+Three Bricks run ONE script (it belongs to the class) and each keeps its OWN base
+pouch, so their notes cannot collide — the class/instance split made structural
+rather than conventional. `nextPc`'s "the world never returns" guard became the
+uniform `cur.pouches.length <= 1`: a context's floor is its own base pouch, so
+**no script can ever unwind into the frames of the one that spawned it.**
+
+### Two splits worth knowing
+- **`labelIndexIn(script, name)` vs `labelIndex(name)`.** The interpreter asks
+  about the script it is RUNNING; the editor asks about the one on screen. Same
+  array today (the scene's), which is why splitting them changed no behaviour —
+  and they stop being the same the moment a class script gets an editor.
+- **`clearRunMemory` resets EVERY context** (`everyCtx(resetCtx)`), not one. A
+  context's pouches array is emptied IN PLACE and refilled; handing it a fresh
+  array would silently disconnect anything holding a reference.
+
+### What is deliberately NOT here
+Nothing but the scene RUNS. Classes carry a `script` (empty), instances carry a
+context over it, and no scheduler visits either — that is Phase 22a. `queue` and
+`idle` are declared and unused for the same reason: the shape is what this phase
+buys, so 22 can be about the scheduler and not about plumbing. The backpack can
+already draw an instance card and a chain (`reachList`), but never does yet,
+because `cur` is always the scene.
+
+### Verification
+`test-call.js` grew to **163 asserts** (T29–T34), **8/8 mutants caught**: two
+contexts sharing a frame list · sharing a base pouch · sharing one staging pouch
+· `runIn` leaking `cur` when the context throws (which is why it is a
+`try/finally` and not two assignments) · **the world pouch spliced back into
+every context** (the first draft) · the scope walk stopping at `cur` · the old
+return-floor rule · an instance forgetting who spawned it.
+
+**The return-floor mutant was MISSED at first, and the reason generalises.** The
+old rule (`<= 1 + (cur.self ? 1 : 0)`) and the new one (`<= 1`) are IDENTICAL for
+the scene, because the scene has no `self` — and the test was driving a
+self-less context. They only disagree on an INSTANCE context, so that is where
+the assertion had to go. Same lesson as Phase 20e's `noteType` mutant: **a mutant
+only dies where the right answer and the wrong one differ.** That is now three
+times; if a mutant survives, the first question is whether the test is even
+standing somewhere the two answers disagree.
+
 **Next up:**
-- **Phase 21 — contexts** (`PLAN-sprites-events.md`). Factor
-  `program`/`pc`/`pouches`/`open` into a context object with a module-level
-  `cur`; the scene gets one, every instance gets one. Pure refactor, all suites
-  stay green.
+- **Phase 22 — the event engine** (`PLAN-sprites-events.md`), the big one.
+  22a the scheduler (tick order, `STEP_BUDGET`, `SYSTEM` return, implicit
+  end-of-script return, the `__evt` seam); 22b the event sources (the overlap
+  vector, `spawn`/`despawn`, scene `start`); 22c `myself` and `valueType`
+  reading the instance registry; 22d rAF interpolation. Phase 21 left `queue`
+  and `idle` on every context waiting for it.
 - **18d is SUPERSEDED**, not dropped: the three brick handlers still collapse
   into one, but into `Brick`'s own script in the Phase-24 seed rewrite rather
   than into a `hitBrick` routine. The jump-guarded shape and its two hazards

@@ -938,8 +938,14 @@
                   '#0E6B5B','#4A3FA3','#2E2A3B','#9AA0B5','#ffffff'];
 
   const classes = {};
+  /* Phase 21: a class carries a SCRIPT - the rows its instances run. It is
+     empty for now and nothing visits it; Phase 23 gives it an editor and Phase
+     22 the scheduler that knocks on its labels. It lives here rather than on
+     the instance because three Bricks share one script and keep separate
+     NOTES, which is exactly the class/instance split this phase makes
+     structural. */
   function defClass(name, w, h, style){
-    classes[name] = { name:name, w:w, h:h, style:style };
+    classes[name] = { name:name, w:w, h:h, style:style, script:[] };
     return classes[name];
   }
   function classNames(){ return Object.keys(classes); }
@@ -981,7 +987,16 @@
   function classOf(id){ const i = instances[id]; return i ? classes[i.cls] : null; }
   function onScene(id){ const i = instances[id]; return !!(i && i.onScene); }
   function makeInstance(id, cls, x, y){
-    instances[id] = { id:id, cls:cls, x:x, y:y, vx:0, vy:0, onScene:false, el:null };
+    const inst = { id:id, cls:cls, x:x, y:y, vx:0, vy:0, onScene:false, el:null };
+    instances[id] = inst;
+    /* Phase 21: every instance gets its own execution context over its class's
+       script, and its PARENT is whichever context ran the `a new <Class>` that
+       made it - literally the context that spawned it. For the seed that is
+       always the scene, but a sprite made by another sprite's script can see
+       that sprite's notes, which is what makes the chain mean something.
+       (Known wrinkle: the link keeps a destroyed instance's notes reachable by
+       its children. Nothing depends on it yet.) */
+    inst.ctx = makeCtx((classes[cls] || { script:[] }).script, inst, cur);
     return id;
   }
   /* Every EXECUTION of `a new <Class>` mints one of these. The id keeps a
@@ -1574,7 +1589,7 @@
     const val = evalExpr(node.expr);
     const bad = exprFault();                  // a /0 refuses the pack, as it refuses a write
     if (bad) return bad;
-    open.parcels.push(val);
+    cur.open.parcels.push(val);
     renderStack('in');
     return { bubble: shown + ' \u2192 packed for the next visit' };
   }
@@ -1619,9 +1634,9 @@
      path - but forgetting it reproduces the bug in full. Guarding the pack with
      a jump keeps the pack from running at all, which is stronger. */
   function execEmpty(node){
-    const n = open.parcels.length;
+    const n = cur.open.parcels.length;
     if (!n) return { bubble:'nothing to empty - the pouch is already bare' };
-    open.parcels.length = 0;
+    cur.open.parcels.length = 0;
     renderStack();
     return { bubble: n === 1 ? 'tipped out 1 parcel' : 'tipped out ' + n + ' parcels' };
   }
@@ -1997,12 +2012,17 @@
   // ones return), exactly like the tray going back to its seed
   const programSeed = program.map(cloneStmt);
 
-  function labelIndex(name){
-    for (let k = 0; k < program.length; k++){
-      if (program[k].kind === 'label' && program[k].name === name) return k;
+  /* Phase 21: the interpreter asks about the script it is RUNNING; the editor
+     asks about the one on screen. They are the same array today (the scene's),
+     which is why splitting them changed no behaviour - and they stop being the
+     same the moment a class carries a script of its own. */
+  function labelIndexIn(script, name){
+    for (let k = 0; k < script.length; k++){
+      if (script[k].kind === 'label' && script[k].name === name) return k;
     }
     return -1;  // lost flag (Phase 9): dangling is allowed; each caller decides
   }
+  function labelIndex(name){ return labelIndexIn(program, name); }
 
   /* ---------- dom ---------- */
   const blocksBox = document.getElementById('blocksBox');
@@ -2128,8 +2148,15 @@
     return valueType(val) === 'sprite'
       ? '<span class="token sprtok mini">'+val+'</span>' : valStr(val);
   }
-  function pouchTitle(pouch){
-    if (!pouch.label) return '<span class="pouch-world">the world</span>';
+  /* A card says what it IS: a visit's flag, an instance's own notes, or the
+     world - which is simply the base pouch of the context nobody spawned. */
+  function pouchTitle(e, root){
+    const pouch = e.p;
+    if (!pouch.label){
+      if (e === root) return '<span class="pouch-world">the world</span>';
+      if (e.ctx.self) return '<span class="token sprtok mini">'+e.ctx.self.id+'</span>';
+      return '<span class="pouch-world">the world</span>';
+    }
     const gone = program.indexOf(pouch.label) === -1;
     return '<span class="flag'+(gone ? ' lost' : '')+'">\u2691 '+(gone ? '?' : pouch.label.name)+'</span>';
   }
@@ -2140,58 +2167,74 @@
      Both doors into a fresh run - the Reset button and the __call.load test
      seam - go through here, so they cannot drift apart. */
   function clearRunMemory(){
-    // EVERY world note goes - there are no engine-owned names left to spare
-    Object.keys(state).forEach(function(k){ delete state[k]; });
-    worldPouch.parcels = [];
-    pouches = [worldPouch];
-    open = makePouch();
+    // every context back to nothing: base pouches emptied, frames dropped. The
+    // world's notes go with them, because the world IS a base pouch.
+    everyCtx(resetCtx);
   }
 
+  /* The pile Beep can see, nearest first: his own frames, then his own notes,
+     then the same for the context that spawned him, all the way to the root.
+     Drawn from `eachInReach` - the SAME walk `pouchWith` resolves names by, so
+     the picture cannot disagree with the language. */
+  function reachList(){
+    const out = [];
+    eachInReach(cur, function(p, ctx, base){ out.push({ p:p, ctx:ctx, base:base }); });
+    return out;
+  }
   function renderStack(moved){
     if (!stackEl) return;
+    const chain = reachList();
+    const root = chain.length ? chain[chain.length - 1] : null;
     let html = '';
     if (stackView === 'reach'){
       // one merged list: nearest pouch wins, the rest are struck through
       const seen = [];
       const rows = [];
-      for (let i = pouches.length - 1; i >= 0; i--){
-        Object.keys(pouches[i].notes).forEach(function(k){
+      chain.forEach(function(e){
+        Object.keys(e.p.notes).forEach(function(k){
           const dup = seen.indexOf(k) !== -1;
           seen.push(k);
           rows.push('<div class="reach-row'+(dup ? ' shadowed' : '')+'">'
                   + '<span class="reach-name">'+k+'</span>'
-                  + '<span class="reach-val">'+noteVal(pouches[i].notes[k])+'</span>'
-                  + '<span class="reach-from">'+(pouches[i].label ? '\u2691 '+pouches[i].label.name : 'world')+'</span>'
+                  + '<span class="reach-val">'+noteVal(e.p.notes[k])+'</span>'
+                  + '<span class="reach-from">'+reachFrom(e, root)+'</span>'
                   + '</div>');
         });
-      }
+      });
       html = '<div class="reach">' + rows.join('') + '</div>';
     } else {
       html += '<div class="pouch ghost">'
            +    '<div class="pouch-head"><span class="pouch-open">packing for the next visit</span></div>'
-           +    parcelStrip(open.parcels, moved)
+           +    parcelStrip(cur.open.parcels, moved)
            +  '</div>';
-      for (let i = pouches.length - 1; i >= 0; i--){
-        const p = pouches[i], top = (i === pouches.length - 1), world = (i === 0);
-        // a name is shadowed here if a pouch ABOVE this one also holds it
+      chain.forEach(function(e, n){
+        const p = e.p, top = (n === 0), world = (e === root);
+        // a name is shadowed here if a pouch NEARER than this one also holds it
         const hidden = [];
         Object.keys(p.notes).forEach(function(k){
-          for (let j = i + 1; j < pouches.length; j++) if (has(pouches[j].notes, k)) hidden.push(k);
+          for (let j = 0; j < n; j++) if (has(chain[j].p.notes, k)) hidden.push(k);
         });
         html += '<div class="pouch'+(top ? ' top' : '')+(world ? ' world' : '')+'">'
-             +    '<div class="pouch-head">' + pouchTitle(p)
+             +    '<div class="pouch-head">' + pouchTitle(e, root)
              +      (p.ret ? '<span class="ret-chip" title="comes back here">\u21A9</span>' : '')
              +    '</div>'
              +    noteTiles(p, world, hidden)
              +    parcelStrip(p.parcels, top ? moved : null)
              +  '</div>';
-      }
+      });
     }
     stackEl.innerHTML = html;
+  }
+  // where a name lives, said the way a learner would: a flag, an instance, or the world
+  function reachFrom(e, root){
+    if (e.p.label) return '\u2691 ' + e.p.label.name;
+    if (e === root) return 'world';
+    return e.ctx.self ? e.ctx.self.id : 'world';
   }
   function renderMarks(){
     if (!blocksBox) return;
     blocksBox.querySelectorAll('.bookmark').forEach(function(el){ el.remove(); });
+    const pouches = cur.pouches;
     if (pouches.length <= 1) return;
     // several bookmarks can share a return row (recursion): one token, with a count
     const rows = [], counts = [];
@@ -2303,7 +2346,6 @@
   }
 
   /* ---------- interpreter ---------- */
-  let pc = 0;               // which program row Beep will do next
   /* Phase 13. The bookmark stack holds call statement NODES, never row indices:
      the program is editable mid-run, so an index would silently rot while a
      node keeps pointing at the row the learner can still see and drag. If that
@@ -2322,10 +2364,105 @@
      a fresh one. It is deliberately NOT in the array: that makes "invisible to
      name resolution, exempt from CALL_MAX" true by construction. */
   function makePouch(){ return { label:null, ret:null, notes:Object.create(null), parcels:[] }; }
-  const worldPouch = { label:null, ret:null, notes:state, parcels:[] };
-  let pouches = [worldPouch];
-  let open = makePouch();
-  function activePouch(){ return pouches[pouches.length - 1]; }
+
+  /* ================= Phase 21: EXECUTION CONTEXTS =================
+     `pc`, `pouches` and `open` were module globals: ONE interpreter state for
+     ONE script, which is precisely the assumption the event runtime breaks.
+     They become a CONTEXT - everything Beep needs in order to be somewhere:
+
+         { script, self, pc, pouches, open, queue, idle }
+
+     The scene has one. Every instance has one. `cur` is the context the
+     interpreter is running RIGHT NOW, which is what keeps the diff small:
+     `readVar` / `writeVar` / `nextPc` kept their shapes and simply say
+     `cur.pouches` where they used to say `pouches`.
+
+     ISOLATION IS STRUCTURAL, not a discipline. Every context builds its OWN
+     pouches array, base pouch and staging pouch in `makeCtx`, so two contexts
+     cannot share a frame list even by accident - the mutation test for this
+     phase is to make them share one, and it must go red. What they DO share is
+     the chain. Sharing happens the honest way: by being ABOVE someone in it.
+
+     THERE IS NO WORLD POUCH (Patrick's correction, and it is the same
+     correction Phase 20e made one level down). The first draft spliced a
+     shared `worldPouch` singleton into index 0 of every context, which left
+     the language with TWO scoping mechanisms: a pile within a context, and a
+     magic shared floor across them. Dynamic scope is the rule, so it should be
+     the ONLY rule. Every context is uniformly
+
+         [ its own base pouch, ...its frames ]
+
+     and a lookup that runs off the bottom CONTINUES IN THE CONTEXT THAT
+     SPAWNED IT, up to the scene, which has no parent. "The world" stopped
+     being an engine object: it is just the root context's base pouch, which is
+     exactly what the `new note` rows at the top of the seed write into. The
+     name `worldPouch` survives as a local alias for that pouch, because "the
+     world" is still the right word for what a learner sees.
+
+     Three Bricks run one script (it belongs to the class) and each keeps its
+     own base pouch, so their notes cannot collide. Nothing but the scene RUNS
+     yet. Phase 21 is a pure refactor; Phase 22 brings the scheduler that
+     visits the others. */
+  function makeCtx(script, self, parent){
+    return {
+      script:  script || [],     // the rows this context runs
+      self:    self || null,     // the instance it belongs to; null = the scene
+      parent:  parent || null,   // the context that spawned it; null = the root
+      pc:      0,                // which of those rows is next
+      pouches: [makePouch()],    // its OWN base pouch, then its frames
+      open:    makePouch(),      // what it is packing for its next visit
+      queue:   [],               // events waiting to be delivered (Phase 22)
+      idle:    false             // true once a handler has run to its return
+    };
+  }
+  /* Back to the state a context is in before it has run anything. The BASE
+     pouch is kept and emptied rather than replaced: the scene's base pouch's
+     notes ARE `state` by identity, so a fresh one here would disconnect every
+     direct `state[...]` read in the engine. Same reason the array is truncated
+     in place rather than reassigned. */
+  function resetCtx(ctx){
+    ctx.pc = 0;
+    ctx.idle = false;
+    ctx.queue.length = 0;
+    const base = ctx.pouches[0];
+    base.parcels.length = 0;
+    Object.keys(base.notes).forEach(function(k){ delete base.notes[k]; });
+    ctx.pouches.length = 1;
+    ctx.open = makePouch();
+  }
+  function everyCtx(fn){
+    fn(scene);
+    Object.keys(instances).forEach(function(id){
+      if (instances[id].ctx) fn(instances[id].ctx);
+    });
+  }
+  const scene = makeCtx(program, null, null);   // the root: nobody spawned the scene
+  const worldPouch = scene.pouches[0];          // "the world" = the root's own notes...
+  worldPouch.notes = state;                     // ...and they ARE `state`, by identity
+  let cur = scene;                              // the context running RIGHT NOW
+  // run `fn` as some other context and put `cur` back, whatever happens
+  function runIn(ctx, fn){
+    const was = cur;
+    cur = ctx;
+    try { return fn(); } finally { cur = was; }
+  }
+  function activePouchOf(ctx){ return ctx.pouches[ctx.pouches.length - 1]; }
+  function activePouch(){ return activePouchOf(cur); }
+  /* THE ONE SCOPE WALK. Everything that asks "what is in reach" goes through
+     here, so the reader, the writer, the backpack and the name chooser cannot
+     drift apart: down my pile, then down my parent's, and so on to the root.
+     A context's frames are part of the chain like anything else - dynamic
+     scope means what it says. Under the event runtime's run-to-completion a
+     parent is always at rest when a child runs, so in practice a child sees
+     its ancestors' NOTES and never a half-finished visit of theirs.
+     `fn` returning false stops the walk. */
+  function eachInReach(ctx, fn){
+    for (let c = ctx; c; c = c.parent){
+      for (let i = c.pouches.length - 1; i >= 0; i--){
+        if (fn(c.pouches[i], c, i === 0) === false) return;
+      }
+    }
+  }
   function has(obj, k){ return Object.prototype.hasOwnProperty.call(obj, k); }
 
   /* ---- NAME RESOLUTION: one rule, every verb (Patrick's revision) ----
@@ -2336,8 +2473,11 @@
      The open pouch is skipped: it is a parcel staging area, not a context. */
   let lostVar = null;       // set by readVar; the divByZero idiom exactly
   function pouchWith(name){
-    for (let i = pouches.length - 1; i >= 0; i--) if (has(pouches[i].notes, name)) return pouches[i];
-    return null;
+    let found = null;
+    eachInReach(cur, function(p){
+      if (has(p.notes, name)){ found = p; return false; }
+    });
+    return found;
   }
   function peekVar(name){                       // display only - never flags
     const p = pouchWith(name);
@@ -2381,7 +2521,7 @@
     if (!program.length){ showBubble('nothing to run!'); return; }
     robot.classList.remove('confused');
     busy = true;
-    const step = current = { i: pc, phase:'walk', result:null, timers:[] };
+    const step = current = { i: cur.pc, phase:'walk', result:null, timers:[] };
     robot.classList.remove('home');
     robot.classList.add('walking');
     robotToBlock(step.i);
@@ -2391,7 +2531,7 @@
   function execPhase(step, done){
     step.phase = 'shown';
     highlight(step.i);
-    step.result = program[step.i].exec();
+    step.result = cur.script[step.i].exec();
     renderPack();
     if (step.result.flash) flashTile(step.result.flash);
     if (step.result.bubble) showBubble(step.result.bubble);
@@ -2403,43 +2543,49 @@
   // Returns the destination label index if it jumped, or null if it just
   // advanced to the next row. This is the single source of truth for control
   // flow, shared by all three run modes.
+  /* Phase 21: every `pc`, `pouches` and `open` in here is the CURRENT
+     context's, and every row index is an index into ITS script. That is the
+     whole refactor - the control-flow rules did not change a word. */
   function nextPc(fromIndex, result){
+    const script = cur.script;
     if (result.visit !== undefined){
-      const t = labelIndex(result.visit);
-      if (t === -1){ pc = fromIndex; return 'lost'; }                  // same dangle rule as a jump
-      if (pouches.length - 1 >= CALL_MAX){ pc = fromIndex; return 'overflow'; }
+      const t = labelIndexIn(script, result.visit);
+      if (t === -1){ cur.pc = fromIndex; return 'lost'; }               // same dangle rule as a jump
+      if (cur.pouches.length - 1 >= CALL_MAX){ cur.pc = fromIndex; return 'overflow'; }
       // the OPEN pouch becomes this call's pouch: whatever was packed into it
       // is already inside, which IS the argument-passing. A fresh one stages.
-      open.label = program[t];
-      open.ret   = program[fromIndex];
-      pouches.push(open);
-      open = makePouch();
+      cur.open.label = script[t];
+      cur.open.ret   = script[fromIndex];
+      cur.pouches.push(cur.open);
+      cur.open = makePouch();
       renderStack(); renderMarks();
-      pc = t;
+      cur.pc = t;
       return t;
     }
     if (result.ret){
-      if (pouches.length <= 1){ pc = fromIndex; return 'nostack'; }    // the world never returns
-      const ci = program.indexOf(activePouch().ret);                   // resolve LATE, every time
-      if (ci === -1){ pc = fromIndex; return 'lostmark'; }             // its row was deleted mid-visit
+      // a context's BASE pouch never returns - it is the floor, so no context
+      // can ever unwind into the frames of the one that spawned it
+      if (cur.pouches.length <= 1){ cur.pc = fromIndex; return 'nostack'; }
+      const ci = script.indexOf(activePouch().ret);                    // resolve LATE, every time
+      if (ci === -1){ cur.pc = fromIndex; return 'lostmark'; }          // its row was deleted mid-visit
       // whatever this visit packed and never took anywhere ARE the results;
       // its own pouch - unconsumed arguments and all - is discarded with it.
-      const results = open.parcels;
-      pouches.pop();
-      open = makePouch();
+      const results = cur.open.parcels;
+      cur.pouches.pop();
+      cur.open = makePouch();
       const caller = activePouch();
       for (let k = 0; k < results.length; k++) caller.parcels.push(results[k]);
       renderStack('in'); renderMarks();
-      pc = (ci + 1) % program.length;                                  // the row AFTER the call
-      return pc;
+      cur.pc = (ci + 1) % script.length;                               // the row AFTER the call
+      return cur.pc;
     }
     if (result.jump !== undefined){
-      const t = labelIndex(result.jump);
-      if (t === -1){ pc = fromIndex; return 'lost'; }   // dangling: stay put
-      pc = t;
+      const t = labelIndexIn(script, result.jump);
+      if (t === -1){ cur.pc = fromIndex; return 'lost'; }   // dangling: stay put
+      cur.pc = t;
       return t;
     }
-    pc = (fromIndex + 1) % program.length;   // fall off the end: back to the top
+    cur.pc = (fromIndex + 1) % script.length;   // fall off the end: back to the top
     return null;
   }
   // Phase 9: the flag is gone. Beep stops where he is, puzzles, and every run
@@ -2582,7 +2728,7 @@
     step.timers.forEach(clearTimeout);
     if (step.phase === 'walk'){
       // the line hadn't run yet — run it now, minus the ceremony
-      step.result = program[step.i].exec();
+      step.result = cur.script[step.i].exec();
       renderPack();
       if (step.result.flash) flashTile(step.result.flash);
     }
@@ -2595,10 +2741,10 @@
       return;                                   // pc stays on the broken statement
     }
     if (step.phase === 'leap'){
-      flagPulse(pc);                     // pc already resolved before the leap animation
+      flagPulse(cur.pc);                 // pc already resolved before the leap animation
     } else {
       const t = nextPc(step.i, step.result);
-      if (!haltCode(t, step.result) && t !== null){ wireZing(program[step.i]); flagPulse(t); }
+      if (!haltCode(t, step.result) && t !== null){ wireZing(cur.script[step.i]); flagPulse(t); }
     }
     robot.classList.remove('walking');
     robot.classList.remove('leaping');
@@ -2606,10 +2752,10 @@
   }
 
   function stepInstant(){
-    if (!program.length){ stopAll(); return; }
+    if (!cur.script.length){ stopAll(); return; }
     robot.classList.remove('confused');
-    const i = pc;
-    const b = program[i];
+    const i = cur.pc;
+    const b = cur.script[i];
     highlight(i);
     b.el.classList.remove('zap'); void b.el.offsetWidth;
     b.el.classList.add('zap');
@@ -2669,7 +2815,7 @@
     if (current){ current.timers.forEach(clearTimeout); current = null; }
     clearRunMemory();
     renderStack(); renderMarks();
-    pc = 0; busy = false;
+    scene.pc = 0; busy = false;
     hideBubble(); highlight(-1);
     /* Phase 20c: Reset REBUILDS the scene, which is how instances the program
        minted with `a new ...` are destroyed. No separate bookkeeping for "the
@@ -2860,7 +3006,7 @@
 
   function reorderProgramFromDom(){
     // remember what pc, the in-flight step, and Beep's anchor point at — by identity
-    const pcBlock    = program[pc] || null;
+    const pcBlock    = program[scene.pc] || null;
     const stepBlock  = current ? program[current.i] : null;
     const robotBlock = program[lastRobotTarget] || null;
 
@@ -2872,7 +3018,7 @@
     program.splice.apply(program, [0, program.length].concat(domOrder));
 
     // remap indices to follow the same blocks in their new positions
-    if (pcBlock)    pc = Math.max(0, program.indexOf(pcBlock));
+    if (pcBlock)    scene.pc = Math.max(0, program.indexOf(pcBlock));
     if (stepBlock && current) current.i = program.indexOf(stepBlock);
     lastRobotTarget = robotBlock ? Math.max(0, program.indexOf(robotBlock)) : 0;
   }
@@ -3575,6 +3721,8 @@
                     // Phase 18: the typing layer, so it can be unit-tested directly
                     noteType:noteType, noteDecl:noteDecl, noteHolders:noteHolders,
                     validNoteName:validNoteName, metaOf:metaOf,
+                    readVar:readVar, program:function(){ return program; },
+                    nextPc:nextPc,
                     varLost:varLost, valueType:valueType, fits:fits,
                     expectedTypeOf:function(id){ return expectedType(id); },
                     spritePos:spritePos, resetScene:resetScene, spriteVel:spriteVel,
@@ -3600,16 +3748,38 @@
   /* Phase 13 testing seam. Call semantics need a PROGRAM, not just an
      expression, so `load` swaps in a small one the way a learner's edits would
      (real blocks, real wires) and resets the run state with it. */
+  /* Phase 21 seam: the contexts themselves. Phase 22's scheduler will drive
+     them through `__evt`; for now this is what proves they exist and are
+     structurally separate. */
+  window.__ctx = {
+    scene: function(){ return scene; },
+    cur:   function(){ return cur; },
+    of:    function(id){ return instances[id] ? instances[id].ctx : null; },
+    all:   function(){ const out = []; everyCtx(function(c){ out.push(c); }); return out; },
+    runIn: function(ctx, fn){ return runIn(ctx, fn); },
+    makeCtx: function(script, self){ return makeCtx(script, self); },
+    resetCtx: function(ctx){ return resetCtx(ctx); },
+    worldPouch: function(){ return worldPouch; },
+    activePouchOf: function(ctx){ return activePouchOf(ctx); },
+    // the one scope walk, as a plain list: nearest pouch first
+    inReach: function(ctx){
+      const out = [];
+      eachInReach(ctx || cur, function(p, c, base){ out.push({ pouch:p, ctx:c, base:base }); });
+      return out;
+    }
+  };
   window.__call = {
     CALL_MAX: CALL_MAX,
     // depth-only view, so the Phase-13 style assertions still read naturally
-    stack: function(){ return pouches.slice(1); },
-    pouches: function(){ return pouches; },
-    open:  function(){ return open; },
-    mine:  function(){ return activePouch().parcels; },
-    notesOf: function(i){ return pouches[i].notes; },
+    // Phase 21: these name the SCENE's context, which is the one the editor
+    // shows and the one every suite drives
+    stack: function(){ return scene.pouches.slice(1); },
+    pouches: function(){ return scene.pouches; },
+    open:  function(){ return scene.open; },
+    mine:  function(){ return activePouchOf(scene).parcels; },
+    notesOf: function(i){ return scene.pouches[i].notes; },
     setView: function(v){ stackView = v; renderStack(); },
-    pc:    function(){ return pc; },
+    pc:    function(){ return scene.pc; },
     build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_, note:note_,
              ifjump:function(cond, name){ return mk({ type:'ifjump', cond:cond, target:name }); },
              despawn:despawn_, move:move_, empty:empty_, add:add_, newOf:newOf,
@@ -3623,7 +3793,7 @@
       program.length = 0;
       list.forEach(function(b){ program.push(b); buildBlock(b); });
       clearRunMemory();
-      pc = 0; busy = false;
+      scene.pc = 0; busy = false;
       hideBubble();                       // a halt must not bleed across the swap
       robot.classList.remove('confused');
       renderStack(); drawWires(); robotToBlock(0);
@@ -4221,7 +4391,7 @@
 
   function removeStmt(b, kind){
     if (focusedBlock === b) setFocus(null);
-    const pcBlock    = program[pc] || null;
+    const pcBlock    = program[scene.pc] || null;
     const stepBlock  = current ? program[current.i] : null;
     const robotBlock = program[lastRobotTarget] || null;
     const i = program.indexOf(b);
@@ -4231,8 +4401,8 @@
     if (kind === 'stash') trayNodes.push(b);
     // follow the surviving blocks by identity; if a tracked block was the one
     // removed, stay on the same row (whatever slid up into its place)
-    pc = (pcBlock && pcBlock !== b) ? Math.max(0, program.indexOf(pcBlock))
-                                    : Math.min(pc, Math.max(0, program.length - 1));
+    scene.pc = (pcBlock && pcBlock !== b) ? Math.max(0, program.indexOf(pcBlock))
+                                          : Math.min(scene.pc, Math.max(0, program.length - 1));
     if (current && stepBlock && stepBlock !== b) current.i = Math.max(0, program.indexOf(stepBlock));
     lastRobotTarget = (robotBlock && robotBlock !== b) ? Math.max(0, program.indexOf(robotBlock))
                                                        : Math.min(lastRobotTarget, Math.max(0, program.length - 1));
@@ -4675,7 +4845,7 @@
       });
     }
     // Phase 14: every note currently in reach, nearest pouch first
-    for (let i = pouches.length - 1; i >= 0; i--) Object.keys(pouches[i].notes).forEach(offer);
+    eachInReach(cur, function(p){ Object.keys(p.notes).forEach(offer); });
     // ...plus every note name the PROGRAM declares, so you can author a write
     // to a note that does not exist yet (it will when the row runs)
     program.forEach(function(o){ if (o.type === 'note') offer(o.name); });

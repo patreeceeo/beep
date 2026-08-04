@@ -513,6 +513,121 @@ async function dragStmt(srcEl, x, y) {
      'the seed keeps its 2 arrow-handler returns');
   ok(blocksBox.querySelectorAll(':scope > .block.check.callrow').length === 2, 'and its 2 ifvisit callers');
 
+  /* ================= Phase 21: EXECUTION CONTEXTS =================
+     `pc`, `pouches` and `open` were module globals - one interpreter state for
+     one script. They are a CONTEXT now: the scene has one, every instance has
+     one, and a lookup that runs off the bottom of a context CONTINUES IN THE
+     CONTEXT THAT SPAWNED IT.
+
+     There is no world pouch. That was the first draft, and it gave the
+     language two scoping mechanisms - a pile within a context and a shared
+     magic floor across them. Dynamic scope is the rule, so it is the only
+     rule: "the world" is just the base pouch of the context nobody spawned.
+     Nothing but the scene RUNS yet; these assert the SHAPE before Phase 22
+     starts visiting the others. */
+  const X = window.__ctx;
+
+  console.log('T29: there is a context per runnable thing, and the scene is the ROOT');
+  document.getElementById('btnReset').dispatchEvent(click());
+  await sleep(40);
+  const startAt29 = [...blocksBox.querySelectorAll(':scope > .block')]
+    .findIndex(r => /start/.test(r.textContent) && /⚑/.test(r.textContent));
+  for (let i = 0; i < startAt29; i++) L.stepInstant();     // build the world
+  const ctxs = X.all();
+  ok(ctxs.length === 6, 'the scene plus five instances, got ' + ctxs.length);
+  ok(X.scene().self === null && X.scene().parent === null,
+     'the scene is nobody’s instance and nobody spawned it - it is the root');
+  ok(ctxs.filter(c => c.self).length === 5, 'the other five each belong to one');
+  ok(X.cur() === X.scene(), 'and `cur` is the scene - the only context that runs today');
+  ok(X.scene().script === L.program(), 'the scene’s script IS the program on screen');
+  ok(X.scene().pc === startAt29, 'its pc is the interpreter’s, got ' + X.scene().pc);
+
+  console.log('T30: "the world" is the ROOT’s base pouch, not an engine object');
+  ok(X.scene().pouches[0] === X.worldPouch(),
+     'MUTANT: what everyone calls the world is simply scene.pouches[0]');
+  ok(X.worldPouch().notes === L.state,
+     'and its notes ARE `state`, by identity - every direct state[...] read still works');
+  ok(X.scene().pouches.length === 1,
+     'at rest the scene is just that one pouch, no frames, got ' + X.scene().pouches.length);
+  ok(ctxs.every(c => c.pouches[0] !== X.worldPouch() || c === X.scene()),
+     'MUTANT: NO other context has the world spliced into it - they reach it by chain');
+
+  console.log('T31: ISOLATION IS STRUCTURAL - contexts cannot share a frame list');
+  /* The mutation target for this phase. Sharing a pouches array between two
+     contexts would make one visit's frames visible to another script, which is
+     Phase 13's worst failure mode at a larger scale. `makeCtx` builds a fresh
+     array, a fresh base pouch and a fresh staging pouch every time. */
+  ok(new Set(ctxs.map(c => c.pouches)).size === ctxs.length,
+     'MUTANT: every context has its OWN pouches array');
+  ok(new Set(ctxs.map(c => c.pouches[0])).size === ctxs.length,
+     'MUTANT: and its OWN base pouch - nobody writes into anybody else’s notes by accident');
+  ok(new Set(ctxs.map(c => c.open)).size === ctxs.length,
+     'MUTANT: and its OWN staging pouch - nobody packs into anybody else’s');
+  const before31 = X.scene().pouches.length;
+  const probe = X.makeCtx([], null, X.scene());
+  probe.pouches.push({ label:null, ret:null, notes:{}, parcels:[] });
+  ok(X.scene().pouches.length === before31,
+     'pushing a frame on one context leaves its parent’s pile alone');
+
+  console.log('T32: the CHAIN is the sharing - each context points at the one that spawned it');
+  const b1 = X.of(L.state.brick1), b2 = X.of(L.state.brick2);
+  ok(!!b1 && !!b2, 'both bricks have a context');
+  ok(b1.parent === X.scene() && b2.parent === X.scene(),
+     'the seed’s sprites were made by the scene, so the scene is their parent');
+  ok(b1.script === b2.script, 'three Bricks run ONE script - it belongs to the class');
+  ok(b1.pouches[0] !== b2.pouches[0],
+     'MUTANT: but each keeps its OWN base pouch, so their notes cannot collide');
+  ok(b1.pouches.length === 1, 'an instance pile starts as just its own pouch');
+  ok(b1.self.id === L.state.brick1, 'and it knows which instance it is: ' + b1.self.id);
+  const reach = X.inReach(b1);
+  ok(reach.length === 2, 'what brick1 can see: its own pouch, then the scene’s, got ' + reach.length);
+  ok(reach[0].pouch === b1.pouches[0] && reach[1].pouch === X.worldPouch(),
+     'in that order - nearest first, the world last');
+
+  console.log('T33: `cur` decides whose notes a name resolves in');
+  b1.pouches[0].notes.mine = 11;
+  b2.pouches[0].notes.mine = 22;
+  L.state.shared = 7;
+  ok(X.runIn(b1, () => L.readVar('mine')) === 11, 'brick1 sees its own');
+  ok(X.runIn(b2, () => L.readVar('mine')) === 22, 'brick2 sees its own');
+  ok(X.runIn(b1, () => L.readVar('shared')) === 7,
+     'MUTANT: and both reach the root through the chain, with no world pouch spliced in');
+  ok(X.runIn(b2, () => L.readVar('shared')) === 7, '...');
+  // a name only the SCENE has is invisible the other way round: the chain is one-way
+  b1.pouches[0].notes.private1 = 1;
+  ok(L.readVar('private1') === 0 && L.varLost !== undefined,
+     'and the scene cannot see DOWN into an instance - a parent is not a child');
+  ok(X.cur() === X.scene(), 'runIn puts `cur` back afterwards');
+  // ...and puts it back even when the thing it ran blew up, which is the whole
+  // reason it is a `finally` and not two assignments
+  try { X.runIn(b1, function(){ throw new Error('boom'); }); } catch (err){}
+  ok(X.cur() === X.scene(), 'MUTANT: including when the context threw');
+
+  console.log('T34: a context can never unwind past its own base pouch');
+  /* `return` with no frames of your own is the `nostack` halt. It used to read
+     "the world never returns", counting a shared world pouch and (later) an
+     instance pouch as floor. With a chain the floor is simply "my pouches[0]",
+     one rule for every context - and the two only disagree on an INSTANCE
+     context, which is why this is tested on one. */
+  const b3 = X.of(L.state.brick3);
+  const savedScript = b3.script, savedLen = b3.pouches.length;
+  const callRow = B.visit('s');
+  b3.script = [ callRow, B.label('s'), B.ret() ];
+  X.scene().pouches.push({ label:null, ret:null, notes:{}, parcels:[] });   // a frame on the PARENT
+  // with no frames of its own, an instance returning halts
+  const got = X.runIn(b3, function(){ b3.pc = 2; return L.nextPc(2, { ret:true }); });
+  ok(got === 'nostack', 'a context with no frames of its own cannot return, got ' + got);
+  ok(X.scene().pouches.length === before31 + 1,
+     'and the parent’s frame is untouched - it was never in reach to pop');
+  // give it ONE frame and the same return must now succeed
+  b3.pouches.push({ label:null, ret:callRow, notes:Object.create(null), parcels:[] });
+  const got2 = X.runIn(b3, function(){ b3.pc = 2; return L.nextPc(2, { ret:true }); });
+  ok(got2 !== 'nostack',
+     'MUTANT: with one frame of its own it returns normally, got ' + got2);
+  ok(b3.pouches.length === savedLen, 'and the frame was popped');
+  X.scene().pouches.length = before31;
+  b3.script = savedScript;
+
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })();
