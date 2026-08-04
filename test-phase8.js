@@ -61,8 +61,8 @@ const strip = el => el.textContent.replace(/\s+/g, '');
   // the 6 baked touch sensors - one two-sprite `isTouching` tile plus one edge
   // tile now cover every case they did, and more (any pair, any edge).
   const protos = paletteEl.querySelectorAll('.proto:not(.stmt-tile)');
-  ok(protos.length === 37,
-     '37 piece prototypes (1 num + 8 vars + 2 keys + touch + edge + closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops), got ' + protos.length);
+  ok(protos.length === 40,
+     '40 piece prototypes (1 num + 8 vars + 2 keys + touch + edge + closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops + 3 `a new <Class>`), got ' + protos.length);
   ok(paletteEl.querySelectorAll('.pred.proto:not(.cmp):not(.bool):not(.alive)').length === 2, '2 key sensor hexagons');
   ok(paletteEl.querySelectorAll('.token.sprtok.proto').length === 5, '5 sprite pills');
   ok(paletteEl.querySelectorAll('.pred.proto.cmp').length === 6, '6 comparison hexagons');
@@ -85,7 +85,7 @@ const strip = el => el.textContent.replace(/\s+/g, '');
      'slot now holds the fresh 0');
   ok(trayEl.children.length === 6, 'tray grew to 6 tiles');
   ok(/ballVelocityX/.test(trayEl.textContent), 'displaced ballVelocityX is now a spare tile');
-  ok(paletteEl.querySelectorAll('.proto:not(.stmt-tile)').length === 37, 'prototype stayed on the shelf');
+  ok(paletteEl.querySelectorAll('.proto:not(.stmt-tile)').length === 40, 'prototype stayed on the shelf');
 
   console.log('T3: operation prototype WRAPS its target (identity seeded)');
   const plusProto = [...paletteEl.querySelectorAll('.optile.proto')][0];

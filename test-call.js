@@ -105,7 +105,7 @@ async function dragStmt(srcEl, x, y) {
 
   console.log('T1: the statements are on the shelf and render their faces');
   const stmtProtos = [...paletteEl.querySelectorAll('.stmt-tile.proto')];
-  ok(stmtProtos.length === 13, '13 statement prototypes, got ' + stmtProtos.length);
+  ok(stmtProtos.length === 14, '14 statement prototypes, got ' + stmtProtos.length);
   const faces = stmtProtos.map(el => el.textContent);
   ok(faces.some(t => /^visit/.test(t)), 'a visit tile');
   ok(faces.some(t => /return/.test(t)), 'a return tile');
@@ -143,9 +143,19 @@ async function dragStmt(srcEl, x, y) {
   ok(L.state.ballX === 10, 'the caller got the answer back (ballX=' + L.state.ballX + ')');
   ok(C.mine().length === 0 && C.open().parcels.length === 0, 'nothing left over anywhere');
 
+  /* Phase 20e: there are no world variables. A top-level name exists because a
+     `new note` row made it, and `C.load` wipes the world along with everything
+     else. These tests are about the POUCH rules - FIFO order, isolation,
+     argument passing - and not about where a name is born, so seed the world
+     the way the seed program's own declarations do. Without this an `unpack
+     into paddleX` would CREATE paddleX in the callee's pouch (the correct
+     Phase-14 rule for a name nobody has) and quietly test something else. */
+  function world(names){ names.forEach(function(n){ L.state[n] = 0; }); }
+
   console.log('T3: parcels are FIFO within a pouch');
   C.load([ B.pack(B.num(1)), B.pack(B.num(2)), B.visit('sub'), B.goto_('end'),
            B.label('sub'), B.unpack('paddleX'), B.unpack('ballX'), B.ret(), B.label('end') ]);
+  world(['paddleX','ballX']);
   step(); step();
   ok(C.open().parcels.join() === '1,2', 'staged in packing order');
   step(); step();                                // visit sub / ⚑sub
@@ -247,11 +257,17 @@ async function dragStmt(srcEl, x, y) {
   ok(C.notesOf(0).tally === 7, 'the callee wrote THROUGH to the caller note (got ' + C.notesOf(0).tally + ')');
   ok(!('tally' in C.notesOf(1)), 'and did NOT mint a shadow in its own pouch');
 
-  console.log('T13: a world name always means the world, from any depth');
-  C.load([ B.visit('sub'), B.goto_('end'),
+  console.log('T13: a TOP-LEVEL name always means the world, from any depth');
+  /* Phase 20e: `paddleX` is not special any more - it is a note the program
+     declares at top level, which lands in the world pouch. The rule being
+     tested is unchanged and is now the ONLY rule: a write finds the nearest
+     pouch holding the name, and for a top-level note that is the world. */
+  C.load([ B.note('paddleX', B.num(40)), B.visit('sub'), B.goto_('end'),
            B.label('sub'), B.assign('paddleX', B.num(23)), B.ret(), B.label('end') ]);
+  step();                                        // new note paddleX = 40 (in the world)
+  ok(L.state.paddleX === 40, 'the declaration created it in the world');
   step(); step(); step();
-  ok(L.state.paddleX === 23, 'the visit moved the REAL paddle (paddleX=' + L.state.paddleX + ')');
+  ok(L.state.paddleX === 23, 'and the visit wrote through to it (paddleX=' + L.state.paddleX + ')');
   ok(!('paddleX' in C.notesOf(1)), 'no shadow copy was created in the pouch');
 
   console.log('T14: a write to a name nobody has creates it in the CURRENT pouch');
@@ -272,15 +288,26 @@ async function dragStmt(srcEl, x, y) {
   ok(C.notesOf(1).n === 2, 'callee has its OWN n = 2');
   ok(C.notesOf(0).n === 1, 'and the caller n is untouched (got ' + C.notesOf(0).n + ')');
 
-  console.log('T16: `new note` refuses a world name');
-  // a non-halt bubble is never painted by stepInstant, so ask the statement
-  const refused = L.execStmt(B.note('paddleX'));
-  ok(/belongs to the world/.test(refused.bubble), 'it says so: ' + refused.bubble);
-  C.load([ B.visit('sub'), B.goto_('end'), B.label('sub'), B.note('paddleX'), B.ret(), B.label('end') ]);
-  const paddleBefore = L.state.paddleX;          // C.load does not reset world values
-  step(); step(); step();                        // visit / ⚑sub / new note paddleX
-  ok(!('paddleX' in C.notesOf(1)), 'no shadow was created in the pouch');
-  ok(L.state.paddleX === paddleBefore, 'and the world paddleX is untouched');
+  console.log('T16: a top-level name can be SHADOWED like any other (Phase 20e)');
+  /* This used to assert the opposite: `new note paddleX` was REFUSED, because
+     the eight world variables were engine property and unshadowable. Phase 20e
+     deleted that exception along with the variables - a name declared at top
+     level is an ordinary note, so the Phase-14 rule ("`new note` is the only
+     way to shadow, and it shadows in THIS pouch") finally applies to every name
+     in the language without a carve-out. **When a rule change makes an
+     exception disappear, take the rule** - Phase 14's own words. */
+  C.load([ B.note('paddleX', B.num(40)), B.visit('sub'), B.goto_('end'),
+           B.label('sub'), B.note('paddleX', B.num(7)),
+           B.assign('paddleX', B.num(99)), B.ret(), B.label('end') ]);
+  step();                                        // the world's paddleX = 40
+  const paddleBefore = L.state.paddleX;
+  step(); step(); step(); step();                // visit / ⚑sub / new note / assign
+  ok(C.notesOf(1).paddleX === 99, 'the visit shadowed it and wrote its OWN copy');
+  ok(L.state.paddleX === paddleBefore,
+     'and the top-level one is untouched, got ' + L.state.paddleX);
+  step();                                        // return - the shadow dies with the pouch
+  ok(L.state.paddleX === paddleBefore && C.stack().length === 0,
+     'the shadow died with the pouch, leaving the original');
 
   console.log('T17: FACTORIAL - the program Phase 13 could not express');
   ok(runToAnswer(factorial(3, true)) === 6, '3! = 6');
@@ -296,6 +323,7 @@ async function dragStmt(srcEl, x, y) {
   C.load([ B.pack(B.num(7)), B.pack(B.num(8)), B.visit('sub'), B.goto_('end'),
            B.label('sub'), B.unpack('paddleX'), B.visit('deep'), B.ret(),
            B.label('deep'), B.unpack('ballY'), B.ret(), B.label('end') ]);
+  world(['paddleX','ballY']);
   const ballYBefore = L.state.ballY;
   step(); step(); step(); step(); step();        // pack,pack,visit sub,⚑sub,unpack->paddleX
   ok(L.state.paddleX === 7, 'sub took the first parcel (got ' + L.state.paddleX + ')');
@@ -339,7 +367,7 @@ async function dragStmt(srcEl, x, y) {
     B.label('bump'), B.unpack('ballY'), B.ret(),             // 5,6,7
     B.label('done')                                          // 8
   ];
-  C.load(guarded()); L.state.ballX = 10;         // yes
+  C.load(guarded()); world(['ballY']); L.state.ballX = 10;         // yes
   step(); step(); step();
   ok(C.stack().length === 1 && C.mine().join() === '3', 'a yes carried the staged parcel in');
   step(); step(); step();                        // ⚑bump / unpack -> ballY / return
@@ -364,6 +392,8 @@ async function dragStmt(srcEl, x, y) {
   console.log('T22: the pouch cards draw what the interpreter is holding');
   C.load([ B.pack(B.num(4)), B.visit('sub'), B.goto_('end'),
            B.label('sub'), B.note('k'), B.ret(), B.label('end') ]);
+  world(['paddleX']);
+  L.renderStack ? L.renderStack() : C.setView('pile');    // redraw with the seeded note
   ok(stackEl.querySelectorAll('.pouch').length === 2, 'at rest: the ghost + the world');
   ok(stackEl.querySelector('.pouch.ghost') !== null, 'the open pouch renders as a ghost card');
   ok(stackEl.querySelector('.pouch.world .tile input') !== null, 'the world card has LIVE inputs');
@@ -380,6 +410,7 @@ async function dragStmt(srcEl, x, y) {
   console.log('T23: the "all in reach" view names the winner and strikes the shadowed');
   C.load([ B.note('n'), B.visit('sub'), B.goto_('end'),
            B.label('sub'), B.note('n'), B.assign('n', B.num(9)), B.ret(), B.label('end') ]);
+  world(['paddleX']);                            // a top-level note to find below
   step(); step(); step(); step(); step();        // note n / visit / ⚑sub / note n / n=9
   C.setView('reach');
   const rows = [...stackEl.querySelectorAll('.reach-row')];
@@ -387,7 +418,7 @@ async function dragStmt(srcEl, x, y) {
   ok(nRows.length === 2, 'both n notes are listed, got ' + nRows.length);
   ok(!nRows[0].classList.contains('shadowed'), 'the nearest one wins');
   ok(nRows[1].classList.contains('shadowed'), 'the one below is struck through');
-  ok(/paddleX/.test(stackEl.textContent), 'and the world is still in reach');
+  ok(/paddleX/.test(stackEl.textContent), 'and the top-level note is still in reach');
   C.setView('pile');
   ok(stackEl.querySelector('.pouch') !== null, 'toggling back restores the pile');
 
@@ -400,7 +431,13 @@ async function dragStmt(srcEl, x, y) {
   ok(C.stack().length === 0, 'the pile is empty');
   ok(C.open().parcels.length === 0, 'nothing staged');
   ok(!('souvenir' in L.state), 'the invented note is gone');
-  ok(L.state.paddleX === 40, 'and the world is back to its start values');
+  /* Phase 20e: Reset empties the backpack completely - there are no engine-owned
+     values left to restore - and the seed program's own declarations refill it,
+     exactly as they refill the stage. */
+  ok(Object.keys(L.state).length === 0,
+     'the backpack is EMPTY, got [' + Object.keys(L.state).join(' ') + ']');
+  for (let i = 0; i < 23; i++) L.stepInstant();   // run the seed's setup rows
+  ok(L.state.paddleX === 40, 'and the program puts it back: paddleX = ' + L.state.paddleX);
 
   /* ---------------- gestures ---------------- */
 
@@ -429,10 +466,13 @@ async function dragStmt(srcEl, x, y) {
   const pop = document.querySelector('.leaf-pop');
   ok(pop !== null && pop.querySelector('input') !== null, 'tapping it opens the name editor');
   const field = pop.querySelector('input');
-  field.value = 'paddleX';                       // a world name
+  /* Phase 20e: `paddleX` is not protected any more - nothing is. What the name
+     editor still refuses is a name of the wrong SHAPE, which is the rule it has
+     always had (letters and digits, starts with a letter, twelve characters). */
+  field.value = '2bad';
   field.dispatchEvent(new window.KeyboardEvent('keydown', { key:'Enter', bubbles:true }));
   await sleep(20);
-  ok(!/paddleX/.test(noteRow.textContent), 'a world name is refused, the old name kept');
+  ok(!/2bad/.test(noteRow.textContent), 'a malformed name is refused, the old one kept');
   noteRow.querySelector('.note-chip').dispatchEvent(click());   // re-query: the row re-rendered
   await sleep(20);
   const field2 = document.querySelector('.leaf-pop input');
@@ -460,7 +500,14 @@ async function dragStmt(srcEl, x, y) {
   document.getElementById('btnReset').dispatchEvent(click());
   await sleep(30);
   ok(blocksBox.querySelector('.block.visit') === null, 'the dropped visit is gone');
-  ok(blocksBox.querySelector('.block.note') === null, 'the dropped note row is gone');
+  /* Phase 20d: the seed DOES have note rows now - the five `new note <n> =
+     <a new Class>` declarations its setup uses - so "gone" means back to five,
+     not back to none. */
+  /* Phase 20d/e: the seed declares THIRTEEN notes of its own - eight numbers
+     and five sprites - so "gone" means back to thirteen, not back to none. */
+  ok(blocksBox.querySelectorAll(':scope > .block.note').length === 13,
+     'the dropped note row is gone (the seed’s own thirteen remain), got '
+     + blocksBox.querySelectorAll(':scope > .block.note').length);
   ok(blocksBox.querySelector('.block.unpack') === null, 'the dropped unpack is gone');
   ok(blocksBox.querySelectorAll(':scope > .block.return').length === 2,
      'the seed keeps its 2 arrow-handler returns');

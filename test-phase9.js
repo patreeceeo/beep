@@ -63,7 +63,7 @@ function pev(type, x, y) {
 
   console.log('T1: statement shelf');
   const stmtProtos = paletteEl.querySelectorAll('.stmt-tile.proto');
-  ok(stmtProtos.length === 13, '13 statement prototypes, got ' + stmtProtos.length);
+  ok(stmtProtos.length === 14, '14 statement prototypes, got ' + stmtProtos.length);
   ok([...stmtProtos].some(t => /despawn/.test(t.textContent)), 'despawn is on the shelf (Phase 10)');
   ok([...stmtProtos].some(t => /paddleX/.test(t.textContent) && t.classList.contains('assign')),
      'identity assign on the shelf');
@@ -75,6 +75,69 @@ function pev(type, x, y) {
   const lastBlock = blocksBox.querySelectorAll(':scope > .block')[blockCount() - 1];
   ok(lastBlock.classList.contains('assign') && /paddleX/.test(lastBlock.textContent),
      'the new block is the identity assign');
+
+  console.log('T2b: a TAP on a shelf statement creates nothing at all');
+  /* A statement drag begins on MOVEMENT, not on contact. The first version
+     built the block on pointerdown and marked the drag active straight away,
+     which shipped two bugs that were really one: a plain tap APPENDED the
+     statement to the end of the program (pointerup took the commit path, and
+     the `unmaterialize` "put it back" branch was unreachable dead code), and
+     the row appearing on contact grew the program column, which shoves the
+     sticky side column down the page when it is scroll-clamped. */
+  const before2b = blockCount();
+  const tapProto = [...stmtProtos].find(t => t.classList.contains('jump'));
+  tapProto.dispatchEvent(pev('pointerdown', 15, 515));
+  ok(blockCount() === before2b, 'MUTANT: pointerdown alone builds NO block, got ' + blockCount());
+  blocksBox.dispatchEvent(pev('pointerup', 15, 515));
+  await sleep(30);
+  ok(blockCount() === before2b, 'MUTANT: and letting go without moving leaves the program alone');
+  ok(blocksBox.querySelector('.block.placeholder') === null, 'no placeholder was left behind');
+  // a wobble under the 6px threshold is still a tap, exactly as it is for a grip
+  tapProto.dispatchEvent(pev('pointerdown', 15, 515));
+  blocksBox.dispatchEvent(pev('pointermove', 17, 517));
+  blocksBox.dispatchEvent(pev('pointerup', 17, 517));
+  await sleep(30);
+  ok(blockCount() === before2b, 'a 4px wobble is a tap too, not a drop');
+
+  console.log('T2c: and tapping a SPARE statement tile leaves it in the tray');
+  const strayProto = [...stmtProtos].find(t => t.classList.contains('pack'));
+  await dragStmt(strayProto, 100, 300);         // put one in the program...
+  const packBlock = [...blocksBox.querySelectorAll(':scope > .block.pack')].pop();
+  await dragBlock(packBlock, 700, 30);          // ...and stash it in the spares
+  const tile2c = trayEl.querySelector('.stmt-tile');
+  ok(!!tile2c, 'a statement is parked in the spare tiles');
+  const trayBefore2c = trayEl.querySelectorAll('.stmt-tile').length;
+  const blocks2c = blockCount();
+  tile2c.dispatchEvent(pev('pointerdown', 15, 515));
+  blocksBox.dispatchEvent(pev('pointerup', 15, 515));
+  await sleep(30);
+  ok(trayEl.querySelectorAll('.stmt-tile').length === trayBefore2c,
+     'MUTANT: tapping it does not pull it out of the tray');
+  ok(blockCount() === blocks2c, 'and does not drop it into the program either');
+  await dragStmt(trayEl.querySelector('.stmt-tile'), 100, 300);   // dragging still works
+  ok(blockCount() === blocks2c + 1, 'but a real DRAG still places it');
+  await dragBlock([...blocksBox.querySelectorAll(':scope > .block.pack')].pop(), 930, 30);
+  ok(blockCount() === blocks2c, '(and back out again, to leave the seed as it was)');
+
+  console.log('T2d: an armed drag is driven from the SHELF TILE, not from the program');
+  /* The event path is the whole point and the suite nearly missed it. An armed
+     prototype captures the pointer on its tile in the SIDE column, so the
+     browser retargets every pointermove there - and a listener bound to
+     blocksBox would never see one, leaving the drag permanently un-activated.
+     `dragStmt` above dispatches on blocksBox, which bubbles to document either
+     way and so cannot tell the two wirings apart. This one dispatches where the
+     capture actually puts the events. */
+  const before2d = blockCount();
+  const armProto = [...stmtProtos].find(t => t.classList.contains('jump'));
+  armProto.dispatchEvent(pev('pointerdown', 15, 515));
+  armProto.dispatchEvent(pev('pointermove', 100, 300));    // retargeted by the capture
+  armProto.dispatchEvent(pev('pointerup', 100, 300));
+  await sleep(30);
+  ok(blockCount() === before2d + 1,
+     'MUTANT: moves that never touch blocksBox still drive the drag, got '
+     + (blockCount() - before2d));
+  await dragBlock([...blocksBox.querySelectorAll(':scope > .block.jump')].pop(), 930, 30);
+  ok(blockCount() === before2d, '(and back out again, to leave the seed as it was)');
 
   console.log('T3: a fresh jump binds to the nearest flag');
   const gotoProto = [...stmtProtos].find(t => t.classList.contains('jump'));
@@ -125,7 +188,9 @@ function pev(type, x, y) {
   console.log('T7: Beep hits the dangling jump and stops, confused');
   window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
   document.getElementById('btnPlay').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  await sleep(800);
+  // Phase 20d/e: 23 setup rows run before the loop, so at 30ms a step Beep needs
+  // longer to reach the broken jump
+  await sleep(1600);
   window.dispatchEvent(new window.KeyboardEvent('keyup', { key: 'ArrowRight' }));
   const bubble = document.getElementById('bubble');
   ok(/where did it go/.test(bubble.textContent), 'confused bubble: ' + bubble.textContent);
@@ -154,7 +219,7 @@ function pev(type, x, y) {
   // scope to the program: shelf jump prototypes are frayed BY DESIGN (bind on drop)
   ok(blocksBox.querySelector('.flagref.lost') === null, 'no frayed references remain in the program');
   ok(trayEl.children.length === 5, 'tray back to its 5 seed tiles');
-  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 13, 'statement shelf untouched');
+  ok(paletteEl.querySelectorAll('.stmt-tile.proto').length === 14, 'statement shelf untouched');
 
   console.log('T11: a purely SIDEWAYS drag reaches the zones (activation fix)');
   // re-stub the tray at the same height as the grip press, so the drag has
@@ -196,7 +261,7 @@ function pev(type, x, y) {
 
   console.log('T12b: section notes live in help popovers');
   const helps = side.querySelectorAll('.panel-help');
-  ok(helps.length === 4, '4 help discs (stage, backpack, new pieces, spare tiles), got ' + helps.length);
+  ok(helps.length === 5, '5 help discs (stage, classes, backpack, new pieces, spare tiles), got ' + helps.length);
   ok(side.querySelector('.panel > .tray-note, .panel > .hint') === null, 'notes moved out of the panels');
   const disc = helps[0];
   disc.dispatchEvent(pev('pointerdown', 500, 20));

@@ -536,24 +536,73 @@
     background:#DFF1FF;
     border:2px solid var(--line);
   }
-  #ball{
-    position:absolute; width:22px; height:22px; border-radius:50%;
-    background:var(--coral); border:3px solid var(--coral-deep);
-    transition:left .5s linear, top .5s linear;
+  /* ------- Phase 20: a sprite's LOOK is data, not a stylesheet rule -------
+     The five sprites used to be five hand-written rules here, which is exactly
+     why there were five of them and why none could ever be given a new face. A
+     look is a CLASS now - a handful of CSS declarations the class editor writes
+     (`classes[name].style`), applied inline to a DIV the engine generates. What
+     is left in the stylesheet is only what is true of EVERY sprite: it is
+     positioned, it glides to wherever it was moved, and leaving the scene
+     shrinks it away. Deliberate difference: the paddle's old .3s ease-out and
+     the ball's .5s linear become one shared glide, because "how a sprite
+     animates" is not one of the class editor's options.
+     `box-sizing:content-box` is load-bearing: the class's width/height are the
+     LOGICAL size `boxOf` measures, and the border sits outside it, exactly as
+     the old per-sprite rules had it. */
+  .sprite{
+    position:absolute; box-sizing:content-box; border:0 solid transparent;
+    transition:left .5s linear, top .5s linear, transform .3s, opacity .3s;
   }
-  #ball::after{content:''; position:absolute; left:4px; top:4px; width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,.75)}
-  #paddle{
-    position:absolute; width:60px; height:12px; border-radius:7px;
-    background:var(--teal); border:2px solid var(--teal-deep);
-    transition:left .3s ease-out;
+  .sprite.gone{transform:scale(0); opacity:0}
+  /* ------- Phase 20b: the class panel -------
+     One card per class. The card's swatch IS a live DIV wearing the class's own
+     declarations, so the card is not a picture OF the class - it is one of its
+     instances, standing still. */
+  .classes{ display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; }
+  .cls-card{
+    display:flex; flex-direction:column; align-items:center; gap:5px;
+    background:#fff; border:2px solid var(--line); border-radius:12px;
+    padding:7px 9px 6px; position:relative; min-width:74px;
   }
-  .brick{
-    position:absolute; width:46px; height:16px; border-radius:6px;
-    background:var(--purple); border:2px solid var(--purple-deep);
-    transition:transform .3s, opacity .3s;
+  .cls-swatch{
+    display:flex; align-items:center; justify-content:center;
+    width:62px; height:38px; border-radius:9px; background:#DFF1FF;
+    overflow:hidden; cursor:pointer;
   }
-  .brick.gone{transform:scale(0); opacity:0}
-  #ball.gone, #paddle.gone{ transform:scale(0); opacity:0; }
+  .cls-swatch:hover{ outline:2px solid var(--teal); outline-offset:1px; }
+  .cls-swatch > .sprite{ position:relative; transition:none; flex:none; }
+  .cls-card .cls-chip{ cursor:pointer; font-size:11.5px; }
+  .cls-card .cls-chip:hover{ outline:2px solid var(--purple); outline-offset:1px; }
+  .cls-del{
+    position:absolute; top:-7px; right:-7px; width:19px; height:19px; padding:0;
+    border-radius:50%; border:2px solid var(--line); background:#fff;
+    color:var(--ink-soft); font-size:12px; line-height:1; cursor:pointer;
+  }
+  .cls-del:hover{ background:var(--coral-soft); border-color:var(--coral); color:var(--coral-deep); }
+  .cls-new{
+    font-family:'Fredoka',sans-serif; font-size:12px; font-weight:500;
+    border:2px dashed var(--line); background:#fff; color:var(--ink-soft);
+    border-radius:12px; padding:0 12px; align-self:stretch; min-height:56px; cursor:pointer;
+  }
+  .cls-new:hover{ border-color:var(--teal); color:var(--teal-deep); }
+  /* the class-deletion dialog highlights the ROWS that hold `a new <Class>`,
+     the way the flag dialog highlights the ropes that would dangle */
+  .block.holder-hi{ box-shadow:0 0 0 3px var(--sun); }
+  .leaf-pop .swatch-grid{ display:flex; flex-wrap:wrap; gap:5px; max-width:184px; }
+  .leaf-pop .swatch{
+    width:20px; height:20px; border-radius:6px; padding:0;
+    border:2px solid rgba(46,42,59,.18); cursor:pointer;
+  }
+  .leaf-pop .swatch.cur{ border-color:var(--ink); box-shadow:0 0 0 2px var(--sun); }
+  /* Phase 20c: `a new <Class>` is sprite material, so it wears the coral pill
+     too - the dashed edge says "this MAKES one" rather than "this IS one",
+     the same way a note tile's dash says "stands for one". */
+  .token.newtok{
+    border-color:var(--coral); color:var(--coral-deep); border-radius:999px;
+    border-style:dashed; box-shadow:0 1.5px 0 rgba(184,73,45,.30);
+  }
+  .token.newtok .cls-chip{ cursor:pointer; margin-left:3px; }
+  .token.newtok .cls-chip:hover{ outline:2px solid var(--coral); outline-offset:1px; }
   .keys-note{
     position:absolute; right:8px; bottom:6px; font-size:11.5px; color:var(--ink-soft);
     background:rgba(255,255,255,.7); border-radius:8px; padding:1px 8px;
@@ -726,11 +775,9 @@
       <section class="panel">
         <h2>Stage</h2>
         <div class="stage" id="stage">
-          <div class="brick" id="brick1"></div>
-          <div class="brick" id="brick2"></div>
-          <div class="brick" id="brick3"></div>
-          <div id="ball"></div>
-          <div id="paddle"></div>
+          <!-- Phase 20: the sprites are GENERATED. The scene is a set of class
+               instances now, so hand-written DIVs would be a second source of
+               truth for what is on the stage. The seed PROGRAM builds them. -->
           <span class="keys-note">← → move the paddle</span>
         </div>
         <div class="controls">
@@ -739,6 +786,12 @@
           <button class="btn" id="btnReset" aria-label="Reset"><svg class="ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4.4" y="4.8" width="2.6" height="14.4" rx="1.1"/><path d="M19 4.8 8.5 12 19 19.2z"/></svg><span>Reset</span></button>
         </div>
         <p class="hint"><b>Play fast</b> to play with ← →. Then <b>Step</b> through it one block at a time to see how it works: yellow blocks ask a question, and if the answer is yes, Beep <b>jumps along the wire</b> to a flag. Wires on the <b>right</b> jump down to little jobs; wires on the <b>left</b> jump back up. <b>Drag any block or flag</b> to rearrange the program and see what breaks!</p>
+      </section>
+
+      <section class="panel">
+        <h2>Classes</h2>
+        <div class="classes" id="classes"></div>
+        <p class="tray-note">Every sprite on the stage is <b>one of these</b>. A <b>class</b> is a size and a look; the stage shows <b>instances</b> of it. Tap a card's <b>picture</b> to restyle it &mdash; every sprite of that class changes at once, because the class is where the look lives. Tap its <b>name</b> to rename it and every <b>a new&hellip;</b> piece follows along. <b>+ new class</b> makes a fresh one. To put one on the stage, drag <b>a new&hellip;</b> from <b>New pieces</b> into a sprite slot, then <b>add it to the scene</b>.</p>
       </section>
 
       <section class="panel">
@@ -779,20 +832,29 @@
 (function(){
   'use strict';
 
-  /* ---------- game state (Beep's backpack) ---------- */
-  const START = { paddleX: 40, ballX: 50, ballY: 55, ballVelocityX: 4, ballVelocityY: 3,
-                  brick1X: 10, brick2X: 40, brick3X: 70 };
+  /* ---------- game state (Beep's backpack) ----------
+     Phase 20e: THERE ARE NO WORLD VARIABLES. There used to be eight, born with
+     the page, spelled out in a `START` table, listed in `VARS`, given private
+     ranges in `VAR_META`, and protected by name from being shadowed or
+     redeclared. They were the last thing in this language that existed because
+     the ENGINE said so rather than because the program did.
+
+     They are ordinary notes now, declared by `new note paddleX = 40` rows at
+     the top of the seed exactly as a learner would declare their own. The world
+     pouch still exists and is still `pouches[0]`, and `state` is still its
+     notes by identity - but it starts EMPTY, and the program fills it. Reset
+     empties the backpack for the same reason it empties the stage: both are the
+     program's to make.
+
+     What this deletes, and it is the point: the world-name refusals in
+     `execNote` and `validNoteName` (there is nothing to protect), the
+     `VARS`-first branch in `noteType` (a name's type is its declaration's seed,
+     always), the eight static palette tiles (`refreshNoteTiles` grows them from
+     the declarations instead), and `VAR_META` - so a note's spinner range is
+     the same generic one whatever it is called. `metaOf` is what is left of it:
+     one range, no names. */
   const state = {};
-  const VARS = Object.keys(START);
-  // Editable range + step per variable. Positions live in 0..100; velocities in
-  // -12..12. Any variable without an entry falls back to a general range, so
-  // every backpack variable is automatically editable.
-  const VAR_META = {
-    paddleX:{min:0,max:100,step:5}, ballX:{min:0,max:100,step:5}, ballY:{min:0,max:100,step:5},
-    ballVelocityX:{min:-12,max:12,step:1}, ballVelocityY:{min:-12,max:12,step:1},
-    brick1X:{min:0,max:100,step:5}, brick2X:{min:0,max:100,step:5}, brick3X:{min:0,max:100,step:5}
-  };
-  function metaOf(name){ return VAR_META[name] || { min:-99, max:99, step:1 }; }
+  function metaOf(){ return { min:-99, max:99, step:1 }; }
   const STEP_PAUSE = 1050;         // how long Beep thinks at each block
   const PADDLE_STEP = 8;
   /* The paddle's resting height, as a LITERAL the seed program passes to `move`.
@@ -805,10 +867,13 @@
   const BALL_W = 22, PADDLE_W = 60, PADDLE_H = 12, BRICK_W = 46, BRICK_H = 16;
   const BRICK_Y = 14, PADDLE_BOTTOM = 12;
 
-  // Phase 10: EVERY sprite can be despawned, so aliveness is per-sprite.
-  // The variables outlive the sprite - despawn hides it and kills its touches,
-  // but the backpack numbers keep computing (instructive on its own).
-  const SPRITES = ['ball', 'paddle', 'brick1', 'brick2', 'brick3'];
+  /* Phase 20d: THERE IS NO LIST OF SPRITES ANY MORE. `SPRITES` was the last
+     hardcoded census of the world - five names the engine knew before the
+     program said anything. The scene is whatever the running program has made
+     and added, so the census is a QUESTION you ask the instance registry.
+     Phase 10's rule still holds underneath it: every sprite can leave the
+     scene, and the variables outlive it. */
+  function sceneNames(){ return Object.keys(instances); }
   /* Phase 12: the four viewport edges. An EDGE is not a value type - there are
      four constants, they are never computed, never stored, and never the result
      of anything, so they stay a tap-to-repoint CHIP (the Phase-10 idiom) rather
@@ -825,12 +890,164 @@
     for (let i = 0; i < EDGES.length; i++) if (EDGES[i].edge === e) return EDGES[i].label;
     return e;
   }
-  const spriteAlive = {};
-  SPRITES.forEach(function(k){ spriteAlive[k] = true; });
+  /* ================= Phase 20: CLASSES and INSTANCES =================
+     A sprite used to be a NAME with a stylesheet rule and a hardcoded size. It
+     is two things now, and separating them is the whole phase:
+
+       a CLASS     - a name, a size, and a look (CSS declarations). Three of
+                     them replace the five hand-written rules.
+       an INSTANCE - a class, a position, and whether it is on the scene. Five
+                     of them replace the five hardcoded sprites.
+
+     `SPRITES`, `SPRITE_SIZE`, `spritePos` and `spriteAlive` all dissolve into
+     `instances`, and `boxOf(id)` (instance position + class size) stays the ONE
+     geometry function. Instance ids are the sprite VALUES, exactly as Phase 18
+     left them - the five seed instances keep the LEGACY ids so every
+     `sprite{name}` in the seed program still names something real and gameplay
+     is byte-identical. Phase 24 retires the names.
+
+     A class is NOT a value type: the only thing code can do with one is
+     instantiate it, so a class rides as a CHIP on `a new <Class>` - the EDGES
+     precedent (finite, chosen, never computed, never stored). */
+
+  /* The class editor's options, and the ONLY things a look is made of. Adding
+     an appearance option is ONE entry here: the card, the chooser popover and
+     the generated DIV all read this list, and it also fixes the order the
+     declarations are written in. `size:true` marks the two that live on the
+     class root rather than in its style block - without width and height every
+     class would be one rectangle. */
+  const CLASS_OPTS = [
+    { key:'background-color', title:'colour',        kind:'swatch' },
+    { key:'background-image', title:'picture',       kind:'text',
+      hint:'any CSS background-image (or none)' },
+    { key:'border-color',     title:'edge colour',   kind:'swatch' },
+    /* Every numeric option is a NUMBER, edited by the same control a number
+       literal gets - `numRow`, the [- input +] the chooser has always had. Four
+       of them: two on the class root (`size:true`) and two CSS lengths, which
+       differ only in that a length carries its `unit` back into the
+       declaration. There used to be a fifth option, `border-style` (solid /
+       dashed / dotted); a sprite's edge is always solid now and the shared
+       `.sprite` rule supplies it, so the class no longer says. */
+    { key:'border-width',     title:'edge width',    kind:'num', unit:'px', min:0, max:24, step:1 },
+    { key:'border-radius',    title:'corners',       kind:'num', unit:'px', min:0, max:120, step:1 },
+    { key:'w',                title:'width',         kind:'num', size:true, min:4, max:200, step:2 },
+    { key:'h',                title:'height',        kind:'num', size:true, min:4, max:200, step:2 }
+  ];
+  // the paint box both colour options share (the app's own palette + a few neutrals)
+  const PAINTS = ['#FF7A59','#2BB39A','#7C6FE0','#F0B429','#DFF1FF','#B8492D',
+                  '#0E6B5B','#4A3FA3','#2E2A3B','#9AA0B5','#ffffff'];
+
+  const classes = {};
+  function defClass(name, w, h, style){
+    classes[name] = { name:name, w:w, h:h, style:style };
+    return classes[name];
+  }
+  function classNames(){ return Object.keys(classes); }
+  /* The three seed classes. The ball's white highlight used to be a `::after`
+     pseudo-element, which a class cannot own - it comes back as a
+     background-image, which IS one of the editor's options, so the shine is
+     something a learner could now make (or remove) themselves. */
+  /* A Ball is round because its corners are 14 - half its BORDER box (22 wide
+     plus a 3px edge either side). That used to be `border-radius: 50%`, which
+     stayed round at any size; a percentage is not a number a number editor can
+     write, and the trade was taken deliberately: the rule that makes a Ball
+     round is now a value you can see and change, like every other rule in this
+     language. Resize the class and you set the corners too. */
+  defClass('Ball', BALL_W, BALL_W, {
+    'background-color':'#FF7A59',
+    'background-image':'radial-gradient(circle at 7px 7px, rgba(255,255,255,.75) 3px, rgba(255,255,255,0) 3px)',
+    'border-color':'#B8492D', 'border-width':'3px', 'border-radius':'14px' });
+  defClass('Paddle', PADDLE_W, PADDLE_H, {
+    'background-color':'#2BB39A', 'background-image':'none',
+    'border-color':'#0E6B5B', 'border-width':'2px', 'border-radius':'7px' });
+  defClass('Brick', BRICK_W, BRICK_H, {
+    'background-color':'#7C6FE0', 'background-image':'none',
+    'border-color':'#4A3FA3', 'border-width':'2px', 'border-radius':'6px' });
+
+  // a class as one inline style string - the swatch on its card and every live
+  // instance of it are painted from this same call, so they cannot drift
+  function classStyleText(c){
+    let s = 'width:' + c.w + 'px;height:' + c.h + 'px;';
+    CLASS_OPTS.forEach(function(o){
+      if (o.size) return;
+      const val = c.style[o.key];
+      if (val !== undefined && val !== '') s += o.key + ':' + val + ';';
+    });
+    return s;
+  }
+
+  const instances = {};
+  const clsSeq = {};        // instances are numbered PER CLASS: Brick·1, Brick·2, ...
+  function classOf(id){ const i = instances[id]; return i ? classes[i.cls] : null; }
+  function onScene(id){ const i = instances[id]; return !!(i && i.onScene); }
+  function makeInstance(id, cls, x, y){
+    instances[id] = { id:id, cls:cls, x:x, y:y, vx:0, vy:0, onScene:false, el:null };
+    return id;
+  }
+  /* Every EXECUTION of `a new <Class>` mints one of these. The id keeps a
+     reserved spelling (`Ball·1`) so it can never collide with a class
+     name, a flag or a legacy sprite name - a sprite value is its name, so ids
+     have to be unforgeable by hand. A fresh instance starts OFF the scene: it
+     exists as a value (movable, storable, packable) but renders nowhere. */
+  function mintInstance(cls){
+    let id = cls + '\u00B7' + (clsSeq[cls] = (clsSeq[cls] || 0) + 1);
+    while (instances[id]) id = cls + '\u00B7' + (++clsSeq[cls]);
+    return makeInstance(id, cls, 50, 50);
+  }
 
   /* ---------- engine functions the blocks call ---------- */
   const stage = document.getElementById('stage');
+  const keysNoteEl = stage.querySelector('.keys-note');
   function px(){ return { W: stage.clientWidth - 4, H: stage.clientHeight - 4 }; }
+  // an instance's DIV is created when it first ENTERS the scene, from its class
+  function buildSpriteEl(inst){
+    const el = document.createElement('div');
+    el.className = 'sprite';
+    el.id = inst.id;                       // legacy ids until Phase 24 retires them
+    el.dataset.cls = inst.cls;
+    stage.insertBefore(el, keysNoteEl);
+    return el;
+  }
+  function styleInstance(inst){
+    const c = classes[inst.cls];
+    if (inst.el && c) inst.el.setAttribute('style', classStyleText(c));
+  }
+  /* ONE SOURCE OF TRUTH FOR A LOOK: editing a class restyles every live
+     instance of it, immediately. (Mutant: drop this and a Brick you have just
+     recoloured keeps its old face until something respawns it - the card and
+     the stage disagree, which is exactly the bug classes exist to prevent.) */
+  function restyleClass(name){
+    Object.keys(instances).forEach(function(id){
+      if (instances[id].cls !== name) return;
+      styleInstance(instances[id]);
+      drawSprite(id);                      // setAttribute wiped left/top; put them back
+    });
+  }
+  /* ON THE SCENE means: rendered, and visible to the sensors. `add` and
+     `despawn` are exact inverses over this one flag, so an instance can leave
+     and come back. */
+  function addToScene(id){
+    const i = instances[id];
+    if (!i || i.onScene) return false;
+    if (!i.el){ i.el = buildSpriteEl(i); styleInstance(i); }
+    i.onScene = true;
+    i.el.classList.remove('gone');
+    drawSprite(id);
+    return true;
+  }
+  function removeFromScene(id){
+    const i = instances[id];
+    if (!i || !i.onScene) return false;
+    i.onScene = false;
+    if (i.el) i.el.classList.add('gone');
+    return true;
+  }
+  function destroyInstance(id){
+    const i = instances[id];
+    if (!i) return;
+    if (i.el) i.el.remove();
+    delete instances[id];
+  }
   // logical 0..100 coordinate -> pixel offset, accounting for sprite size
   function toPx(pct, size, axis){ return pct/100*(axis - size); }
   /* Phase 17: A SPRITE OWNS ITS POSITION. The engine used to DERIVE every
@@ -840,50 +1057,79 @@
      logical x,y, and the only thing that changes it is the `move` statement.
      The convention lives where it belongs: in the PROGRAM, which says
      `move ball to ballX, ballY`. Any variable can drive any sprite. */
-  const SPRITE_SIZE = { ball:[BALL_W,BALL_W], paddle:[PADDLE_W,PADDLE_H],
-                        brick1:[BRICK_W,BRICK_H], brick2:[BRICK_W,BRICK_H], brick3:[BRICK_W,BRICK_H] };
-  const spritePos = {};
-  function resetSpritePos(){
-    const d = px();
-    spritePos.ball   = { x: START.ballX,   y: START.ballY };
-    // the paddle and the bricks used to be pinned by pixel constants; seed the
-    // store from those same constants so the opening frame is unchanged
-    spritePos.paddle = { x: START.paddleX, y: toPct(d.H-PADDLE_BOTTOM-PADDLE_H, PADDLE_H, d.H) };
-    [1,2,3].forEach(function(n){
-      spritePos['brick'+n] = { x: START['brick'+n+'X'], y: toPct(BRICK_Y, BRICK_H, d.H) };
-    });
+  /* Phase 20d: THE SCENE IS EMPTY UNTIL THE PROGRAM BUILDS IT. Reset does not
+     lay out a board any more - it clears the stage, and the seed program's
+     setup rows (`new note ball = <a new Ball>` / `move` / `add ... to the
+     scene`) are what put sprites on it. That is the whole point of the phase
+     made visible: there is exactly ONE source of truth for what exists, and it
+     is the program. It also means the opening frame is blank until you press
+     Play or Step, which is honest rather than tidy. */
+  function resetScene(){
+    Object.keys(instances).forEach(destroyInstance);
+    Object.keys(clsSeq).forEach(function(k){ delete clsSeq[k]; });
   }
   // ONE box function, every sprite, no names: anything needing geometry takes a
   // sprite as a value. (Phase 17 folded away the per-sprite ballBox/paddleBox/
-  // brickBox wrappers this replaced - they had all become `return boxOf(name)`.)
-  function boxOf(name){
-    const d = px(), sz = SPRITE_SIZE[name], p = spritePos[name];
-    if (!sz || !p) return { x:0, y:0, w:0, h:0 };
-    return { x: toPx(p.x, sz[0], d.W), y: toPx(p.y, sz[1], d.H), w: sz[0], h: sz[1] };
+  // brickBox wrappers this replaced; Phase 20 pointed it at the instance's own
+  // position and its CLASS's size, and it still knows no names.)
+  function boxOf(id){
+    const d = px(), i = instances[id], c = classOf(id);
+    if (!i || !c) return { x:0, y:0, w:0, h:0 };
+    return { x: toPx(i.x, c.w, d.W), y: toPx(i.y, c.h, d.H), w: c.w, h: c.h };
   }
   // pixel offset -> logical 0..100 (the inverse of toPx)
   function toPct(v, size, axis){ return axis === size ? 0 : v/(axis-size)*100; }
   // a sprite's LOGICAL position, both axes 0..100 - read straight off the sprite
-  function spriteXY(name){
-    const p = spritePos[name];
-    return p ? { x: p.x, y: p.y } : { x: 0, y: 0 };
+  function spriteXY(id){
+    const i = instances[id];
+    return i ? { x: i.x, y: i.y } : { x: 0, y: 0 };
   }
+  /* The one thing that changes a position (Phase 17's rule, unchanged). An
+     instance that is OFF the scene is still movable - it is a value that
+     happens not to be rendered - so this never asks about membership. */
+  function moveSprite(id, x, y){
+    const i = instances[id];
+    if (!i) return false;
+    i.vx = x - i.x; i.vy = y - i.y;      // how far this move carried it = its velocity
+    i.x = x; i.y = y;
+    drawSprite(id);
+    return true;
+  }
+  /* Two legacy VIEWS, kept only so `__lang` (and the ten suites that poke it)
+     read the way they always did while the store underneath became
+     `instances`. They are live views, not copies, so there is still exactly one
+     source of truth. Phase 24 deletes both along with the legacy names. */
+  const spriteAlive = new Proxy({}, {
+    get: function(t, k){ return onScene(k); },
+    set: function(t, k, val){ if (val) addToScene(k); else removeFromScene(k); return true; },
+    has: function(t, k){ return k in instances; },
+    ownKeys: function(){ return Object.keys(instances); },
+    getOwnPropertyDescriptor: function(t, k){
+      return { enumerable:true, configurable:true, value:onScene(k) }; }
+  });
+  const spritePos = new Proxy({}, {
+    get: function(t, k){ return instances[k]; },
+    has: function(t, k){ return k in instances; },
+    ownKeys: function(){ return Object.keys(instances); },
+    getOwnPropertyDescriptor: function(t, k){
+      return { enumerable:true, configurable:true, value:instances[k] }; }
+  });
   function overlaps(a, b){
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
   const keys = {};
   function isKeyPressed(k){ return !!keys[k]; }
-  /* KNOWN LIMIT, and the last convention-bound thing in the engine: velocity is
-     read from two variables BY NAME, so `isClosingOn` only really works for the
-     ball. The paddle genuinely moves (nudgePaddle) but reads as stationary, and
-     a learner who writes `ballX = ballX + 2` instead gets {0,0} and falls into
-     the "nothing is moving" branch below. The fix, once it matters: cache each
-     sprite's position per program pass and derive velocity from the delta -
-     convention-free, and it works for any sprite moved by any means. */
-  function spriteVel(name){
-    // only the ball carries velocity today; everything else is moved by hand
-    if (name === 'ball') return { x: state.ballVelocityX, y: state.ballVelocityY };
-    return { x: 0, y: 0 };
+  /* Phase 20d KILLED THE LAST CONVENTION-BOUND READ. This used to reach for
+     `state.ballVelocityX/Y` BY NAME, so `isClosingOn` only ever worked for a
+     sprite called `ball` moved by variables called `ballVelocity*` - and once
+     the program mints its own instances there is no sprite called `ball` at
+     all. Velocity is DERIVED now: `moveSprite` records how far the last move
+     carried each sprite, which is convention-free, works for any sprite moved
+     by any means, and finally makes the paddle read as moving (it genuinely
+     does; it used to report {0,0} and count as a rest contact). */
+  function spriteVel(id){
+    const i = instances[id];
+    return i ? { x: i.vx, y: i.vy } : { x: 0, y: 0 };
   }
   /* "Are they closing?" is a perfectly general question - take the two sprites
      and ask whether their RELATIVE velocity is shortening the gap - which is why
@@ -929,12 +1175,12 @@
      visible, editable part of the program, not a rule buried in the engine. */
   function spritesTouch(a, b){
     if (a === b) return false;                        // nothing touches itself
-    if (!spriteAlive[a] || !spriteAlive[b]) return false;
+    if (!onScene(a) || !onScene(b)) return false;     // off the scene touches nothing
     return overlaps(boxOf(a), boxOf(b));
   }
   // likewise an edge test is pure POSITION: at or past the edge, nothing more
   function edgeTouch(name, edge){
-    if (!spriteAlive[name]) return false;
+    if (!onScene(name)) return false;
     const p = spriteXY(name);
     if (edge === 'viewLeftEdge')   return p.x <= 0;
     if (edge === 'viewRightEdge')  return p.x >= 100;
@@ -943,24 +1189,20 @@
     return false;
   }
   // draw a sprite where it currently IS. One function, every sprite, no names.
-  function drawSprite(name){
-    const el = document.getElementById(name);
-    if (!el) return;
-    const b = boxOf(name);
-    el.style.left = b.x + 'px';
-    el.style.top  = b.y + 'px';
+  // An instance with no DIV is one that has never been on the scene - there is
+  // nothing to draw, and asking is not an error.
+  function drawSprite(id){
+    const i = instances[id];
+    if (!i || !i.el) return;
+    const b = boxOf(id);
+    i.el.style.left = b.x + 'px';
+    i.el.style.top  = b.y + 'px';
   }
-  function drawAllSprites(){ Object.keys(SPRITE_SIZE).forEach(drawSprite); }
-  function despawnSprite(k){
-    spriteAlive[k] = false;
-    document.getElementById(k).classList.add('gone');
-  }
-  function respawnAll(){
-    SPRITES.forEach(function(k){
-      spriteAlive[k] = true;
-      document.getElementById(k).classList.remove('gone');
-    });
-  }
+  function drawAllSprites(){ Object.keys(instances).forEach(drawSprite); }
+  /* Phase 20c reframes `despawn`: it is the INVERSE of `add ... to the scene`.
+     Observably nothing changed - hidden, touches nothing, references held in
+     notes stay perfectly safe - but the same instance can now be brought back. */
+  function despawnSprite(id){ return removeFromScene(id); }
 
   /* ---------- expression + statement model (the evaluator) ----------
      Statements used to be hand-written closures that baked in their operands.
@@ -1014,6 +1256,15 @@
   // Phase 12d: "are these two getting closer?" as a first-class predicate, so a
   // program can say WHY a collision counts instead of the engine deciding for it.
   function closingOf(a, b){ return { type:'closing', left:a, right:b }; }    // sprite x sprite -> boolean
+  /* Phase 20c: INSTANTIATION IS AN EXPRESSION, and it is the language's ONE
+     effectful one - a deliberate amendment to "expressions stay pure". Its
+     class is a chip (the EDGES precedent), its value is a sprite, and what
+     keeps it safe is the memo rule in `mintOnce`. What it buys is that the
+     declaration machinery needed ZERO changes: `new note ball = <a new Ball>`
+     types the note from its seed exactly as Phase 18 built it, and the
+     sprite-note chicken-and-egg (no sprite value existed to seed with)
+     dissolves, because this expression IS a source of sprite values. */
+  function newOf(cls){ return { type:'new', cls:cls }; }
   const PROPS = ['x', 'y'];
 
   function opGlyph(op){
@@ -1048,6 +1299,38 @@
     return 'number';
   }
 
+  /* ---- Phase 20c: instantiation happens EXACTLY ONCE PER EXECUTION ----
+     `bubbleExpr` re-evaluates expressions to draw the thought bubble, and the
+     authoring scan evaluates too, so a naive `case 'new': mint()` would spawn a
+     phantom instance on every bubble redraw and every keystroke. The rule:
+     `execStmt` opens a memo for the row it is running; inside it, the FIRST
+     evaluation mints and everyone after reads the memo (so the bubble shows the
+     instance the row actually made); OUTSIDE a live step - bubble redraws,
+     authoring scans, chooser previews - nothing is ever created and the phrase
+     renders symbolically. A mutant where a redraw mints must go red. */
+  let mintMemo = null;              // Map(node -> instance id); non-null ONLY inside execStmt
+  let lostClass = null;             // set by mintOnce; the lostVar idiom exactly
+  function newPhrase(e){ return 'a new ' + e.cls; }
+  function mintOnce(e){
+    if (!mintMemo) return newPhrase(e);        // not a live step: say it, never make it
+    if (mintMemo.has(e)) return mintMemo.get(e);
+    if (!classes[e.cls]){ lostClass = e.cls; return newPhrase(e); }
+    const id = mintInstance(e.cls);
+    mintMemo.set(e, id);
+    return id;
+  }
+  function noClassMsg(name){ return 'a class called ' + name + '? I do not have one!'; }
+  /* ONE place asks "did evaluating that go wrong?" - a /0, a name nobody has,
+     or a class deleted out from under `a new ...`. Every statement that
+     evaluates an expression asks it, so the next failure mode is one line here
+     instead of one line in each of six statements. */
+  function exprFault(flashOnDivZero){
+    if (divByZero) return flashOnDivZero ? { divZero:true, flash:flashOnDivZero } : { divZero:true };
+    if (lostVar)   return { stuck: noNoteMsg(lostVar) };
+    if (lostClass) return { stuck: noClassMsg(lostClass) };
+    return null;
+  }
+
   // evaluate an expression/condition against the current backpack -> number | boolean
   function evalExpr(e){
     switch(e.type){
@@ -1057,8 +1340,9 @@
       case 'not':   return !evalExpr(e.operand);
       // a sprite VALUE is its name; the bridges read the world through it
       case 'sprite': return e.name;
+      case 'new':    return mintOnce(e);      // the one effectful expression
       case 'prop':   return spriteXY(evalExpr(e.sprite))[e.prop];
-      case 'alive':  return !!spriteAlive[evalExpr(e.sprite)];
+      case 'alive':  return onScene(evalExpr(e.sprite));   // `alive` IS scene membership
       case 'touch':  return spritesTouch(evalExpr(e.left), evalExpr(e.right));
       case 'closing': return spritesClosing(evalExpr(e.left), evalExpr(e.right));
       case 'edge':   return edgeTouch(evalExpr(e.sprite), e.edge);
@@ -1104,6 +1388,7 @@
       case 'not': { const s = 'not ' + htmlExpr(e.operand, true);
                     return nested ? '(' + s + ')' : s; }
       case 'sprite': return chip(e.name);
+      case 'new':    return 'a new ' + clsChip(e.cls);
       case 'prop':   return e.prop + ' of ' + htmlExpr(e.sprite);
       case 'alive':  return htmlExpr(e.sprite) + ' is alive';
       case 'touch':  return htmlExpr(e.left) + ' isTouching ' + htmlExpr(e.right);
@@ -1128,6 +1413,9 @@
       case 'not': { const s = 'not ' + bubbleExpr(e.operand, true);
                     return nested ? '(' + s + ')' : s; }
       case 'sprite': return e.name;
+      // inside a live step this reads the memo, so the bubble names the instance
+      // the row actually minted; outside one it is just the phrase
+      case 'new':    return mintOnce(e);
       // the bridges bubble their ANSWER, the way a var bubbles its value
       case 'prop':   return valStr(evalExpr(e));
       case 'alive':  return boolWord(evalExpr(e));
@@ -1138,12 +1426,20 @@
     return '';
   }
   function noteChip(name){ return '<span class="chip note-chip">'+name+'</span>'; }
+  /* Phase 20c, and the FIFTH instance of the Phase-9 amendment: a class the
+     panel has deleted leaves `a new <Class>` pointing at nothing. Structure is
+     still valid, so it frays rather than being repaired - in the compact view
+     as well as the editable one, because a broken program has to LOOK broken
+     wherever it is shown. */
+  function clsChip(name){
+    return '<span class="chip cls-chip'+(classes[name] ? '' : ' lost')+'">'+name+'</span>';
+  }
   /* Phase 18, and the FOURTH instance of the Phase-9 amendment: a var whose
      `new note` declaration has been deleted is a dangling REFERENCE. The
      structure is still valid, so it renders frayed rather than being repaired,
      and `readVar` already halts Beep on it at run time. */
   function varLost(name){
-    return VARS.indexOf(name) === -1 && !noteDecl(name);
+    return !noteDecl(name);
   }
   function varChip(name){
     return '<span class="chip'+(varLost(name) ? ' lost' : '')+'">'+name+'</span>';
@@ -1174,6 +1470,7 @@
       case 'ifjump':  return 'if ' + condHtml(node.cond) + ' jump to ' + flagref(node.target);
       case 'assign':  return tgtChip(node.target) + ' = ' + htmlExpr(node.expr);
       case 'command': return commandHtml(node);
+      case 'add':     return 'add ' + htmlExpr(node.sprite) + ' to the scene';
       // Phase 13. `return` is deliberately CHIPLESS: where it goes is data (the
       // top bookmark), not syntax, and that absence is the lesson.
       case 'visit':   return 'visit ' + flagref(node.target);
@@ -1189,25 +1486,36 @@
     return '';
   }
 
-  // run a statement -> { bubble, flash?, jump?, pause? } (same result shape as before)
+  /* Phase 20c: running a row is the ONLY window in which `a new <Class>` may
+     create anything. The memo opens here and closes here, whatever the row does
+     or how it fails - which is what makes "exactly once per execution" a
+     property of the interpreter rather than a discipline every caller keeps. */
   function execStmt(node){
+    mintMemo = new Map();
+    try { return execStmt_(node); }
+    finally { mintMemo = null; }
+  }
+  // run a statement -> { bubble, flash?, jump?, pause? } (same result shape as before)
+  function execStmt_(node){
     divByZero = false;               // cleared per statement; evalExpr sets it on a /0
     lostVar = null;                  // ditto: readVar sets it when a name is nowhere
+    lostClass = null;                // ditto: mintOnce sets it on a deleted class
     switch(node.type){
       case 'label':  return { bubble:'⚑ '+node.name, pause:400 };
       case 'goto':   return { bubble:'wheee → ⚑ '+node.target+'!', jump:node.target };
       case 'ifjump': {
-        lostVar = null;
+        lostVar = null; lostClass = null;
         const yes = evalExpr(node.cond);
         // a /0 hiding inside a comparison is the same ERROR it is in an assign:
         // refuse to decide, and let the caller halt Beep on this row
-        if (divByZero) return { divZero:true };
-        if (lostVar) return { stuck: noNoteMsg(lostVar) };
+        const bad = exprFault();
+        if (bad) return bad;
         if (yes) return { bubble:'yes → ⚑ '+node.target+'!', jump:node.target };
         return { bubble: condNoBubble(node.cond) };
       }
       case 'assign': return execAssign(node);
       case 'command':return execCommand(node);
+      case 'add':    return execAdd(node);
       // Phase 13: visit/return only REPORT what they want; nextPc decides and
       // owns the bookmark stack, exactly as it already owns jump resolution.
       case 'visit':  return { bubble:'off to \u2691 '+node.target+' \u2014 back soon!', visit:node.target };
@@ -1215,10 +1523,10 @@
          but a yes reports {visit} instead of {jump}, so nextPc drops a bookmark.
          The 2x2 grid (one-way | comes-back) x (always | if) is closed now. */
       case 'ifvisit': {
-        lostVar = null;
+        lostVar = null; lostClass = null;
         const yes = evalExpr(node.cond);
-        if (divByZero) return { divZero:true };
-        if (lostVar) return { stuck: noNoteMsg(lostVar) };
+        const bad = exprFault();
+        if (bad) return bad;
         if (yes) return { bubble:'yes \u2192 off to \u2691 '+node.target+'!', visit:node.target };
         return { bubble: condNoBubble(node.cond) };
       }
@@ -1233,10 +1541,10 @@
   function execAssign(node){
     const old   = peekVar(node.target);
     const shown = bubbleExpr(node.expr);      // capture operand values BEFORE the write
-    divByZero = false; lostVar = null;        // (re)clear right before the real evaluation
+    divByZero = false; lostVar = null; lostClass = null;   // (re)clear before the real evaluation
     let v = evalExpr(node.expr);
-    if (divByZero) return { divZero:true, flash:node.target };   // /0: refuse the write; Beep will halt
-    if (lostVar) return { stuck: noNoteMsg(lostVar) };           // read a name nobody has
+    const bad = exprFault(node.target);       // /0 refuses the write; Beep will halt on this row
+    if (bad) return bad;
     if (node.clamp) v = Math.min(Math.max(v, node.clamp[0]), node.clamp[1]);
     const wrote = writeVar(node.target, v);   // write-through: wherever that name lives
     if (writeFailed(wrote)) return { stuck: badTypeMsg(wrote), flash:node.target };
@@ -1260,10 +1568,12 @@
      it). Two verbs, two sentences, no cases. */
   function execPack(node){
     const shown = bubbleExpr(node.expr);      // operand values BEFORE anything moves
-    divByZero = false; lostVar = null;
+    /* NOTE the ordering, which the memo rule makes safe: bubbleExpr runs first
+       and is what mints `a new <Class>`; evalExpr then reads the same memo, so
+       the parcel and the bubble carry the SAME instance, not two. */
     const val = evalExpr(node.expr);
-    if (divByZero) return { divZero:true };   // a /0 refuses the pack, as it refuses a write
-    if (lostVar) return { stuck: noNoteMsg(lostVar) };
+    const bad = exprFault();                  // a /0 refuses the pack, as it refuses a write
+    if (bad) return bad;
     open.parcels.push(val);
     renderStack('in');
     return { bubble: shown + ' \u2192 packed for the next visit' };
@@ -1316,17 +1626,15 @@
     return { bubble: n === 1 ? 'tipped out 1 parcel' : 'tipped out ' + n + ' parcels' };
   }
   function execNote(node){
-    if (VARS.indexOf(node.name) !== -1)
-      return { bubble: node.name + ' belongs to the world - I cannot make my own' };
     const top = activePouch();
     if (has(top.notes, node.name)) return { bubble:'I already have a note called ' + node.name };
     // Phase 18: the seed is an ordinary expression, so it can fail the ordinary
     // ways - a /0 or a missing name refuses the declaration exactly as it
     // refuses a pack or a write.
-    divByZero = false; lostVar = null;
+    divByZero = false; lostVar = null; lostClass = null;
     const val = evalExpr(node.expr);
-    if (divByZero) return { divZero:true };
-    if (lostVar) return { stuck: noNoteMsg(lostVar) };
+    const bad = exprFault();
+    if (bad) return bad;
     top.notes[node.name] = val;
     renderStack();
     return { bubble:'a fresh note: ' + node.name + ' = ' + valStr(val), flash:node.name };
@@ -1335,17 +1643,36 @@
     const who = evalExpr(node.sprite);
     if (node.name === 'move'){
       const x = evalExpr(node.x), y = evalExpr(node.y);
-      if (divByZero) return { divZero:true };
-      if (lostVar) return { stuck: noNoteMsg(lostVar) };
-      if (spritePos[who]){ spritePos[who].x = x; spritePos[who].y = y; }
-      drawSprite(who);
+      const bad = exprFault();
+      if (bad) return bad;
+      moveSprite(who, x, y);
       return { bubble: who + ' \u2192 ' + valStr(x) + ', ' + valStr(y) };
     }
-    despawnSprite(who);              return { bubble:'bye bye '+who+'!' };
+    const bad = exprFault();
+    if (bad) return bad;
+    if (!instances[who]) return { stuck: noSpriteMsg(who) };
+    if (!despawnSprite(who)) return { bubble: who + ' is not on the scene' };
+    return { bubble:'bye bye '+who+'!' };
+  }
+  function noSpriteMsg(who){ return 'a sprite called ' + who + '? I do not know it!'; }
+  /* Phase 20c: SCENE MEMBERSHIP IS A STATEMENT. `a new Ball` makes a sprite
+     that exists as a value but renders nowhere and is invisible to the sensors;
+     this is the row that puts it on the stage, and `despawn` is its exact
+     inverse, so the same instance can leave and come back. Adding one that is
+     already there is a VISIBLE no-op bubble - the `empty` idiom: say so rather
+     than pretend to work. */
+  function execAdd(node){
+    const who = evalExpr(node.sprite);
+    const bad = exprFault();
+    if (bad) return bad;
+    if (!instances[who]) return { stuck: noSpriteMsg(who) };
+    if (!addToScene(who)) return { bubble: who + ' is already on the scene' };
+    return { bubble: who + ' \u2192 on the scene!' };
   }
 
   // wrap a statement node with the fields the interpreter/renderer expect
   const KIND_FOR = { label:'label', goto:'jump', ifjump:'check', assign:'assign', command:'action',
+                     add:'action',        // it acts on the stage, like move/despawn: coral
                      visit:'visit', return:'return', pack:'pack', unpack:'unpack',
                      ifvisit:'check',     // it ASKS A QUESTION; coming back is a modifier (.callrow)
                      empty:'pack',        // it acts on the staging pouch, like pack: teal
@@ -1374,8 +1701,13 @@
   function ifKeyVisit(arrow, keyName, name){
     return mk({ type:'ifvisit', cond: keyCond(keyName, arrow), target:name });
   }
+  /* Phase 20d: every sprite in the seed program is now a NOTE the setup rows
+     declared, not a literal naming something the engine made. `v('ball')` is
+     sprite-typed because its declaration's seed is `a new Ball` (Phase 18's
+     rule, unchanged) - so all of this material types, drags and drops exactly
+     as it did when it was a pill. */
   function ifTouchJump(what, name){
-    return mk({ type:'ifjump', cond: touchOf(sprite('ball'), sprite(what)), target:name });
+    return mk({ type:'ifjump', cond: touchOf(v('ball'), v(what)), target:name });
   }
   /* Phase 12: the old coarse `sideWall` / `topOrFloor` sensors are spelled out as
      two precise edge tests joined by `or` - only sayable since Phase 11c added it.
@@ -1387,7 +1719,7 @@
      already has, pointing at a number they can watch in the backpack. The rule
      that keeps the ball alive is now part of the program they can read and edit. */
   function edgeGuard(edge, velVar, op){
-    return bin('and', edgeOf(sprite('ball'), edge), cmp(op, v(velVar), num(0)));
+    return bin('and', edgeOf(v('ball'), edge), cmp(op, v(velVar), num(0)));
   }
   function ifEdgeJump(edgeA, opA, edgeB, opB, velVar, name){
     return mk({ type:'ifjump', target:name,
@@ -1397,8 +1729,8 @@
   // no guard - a hit despawns the brick, so it cannot fire twice.
   function ifPaddleJump(name){
     return mk({ type:'ifjump', target:name,
-                cond: bin('and', touchOf(sprite('ball'), sprite('paddle')),
-                                 closingOf(sprite('ball'), sprite('paddle'))) });
+                cond: bin('and', touchOf(v('ball'), v('paddle')),
+                                 closingOf(v('ball'), v('paddle'))) });
   }
   function nudgePaddle(sign){
     return mk({ type:'assign', target:'paddleX', clamp:[0,100],
@@ -1414,6 +1746,9 @@
   // convenient case, for the seed program) or any sprite-typed node.
   function spriteArg(s){ return typeof s === 'string' ? sprite(s) : s; }
   function despawn_(s){ return mk({ type:'command', name:'despawn', sprite:spriteArg(s) }); }
+  /* ONE ordinary sprite slot and nothing else - `s.field === 'sprite'` already
+     types it, so this statement needed no new machinery anywhere. */
+  function add_(s){ return mk({ type:'add', sprite:spriteArg(s) }); }
   function move_(s, x, y){ return mk({ type:'command', name:'move', sprite:spriteArg(s), x:x, y:y }); }
   function addAssign(target, a, b){ return mk({ type:'assign', target:target, expr: bin('+', v(a), v(b)) }); }
 
@@ -1427,6 +1762,7 @@
     if (b.type === 'empty')  return mk({ type:'empty' });
     if (b.type === 'pack')   return mk({ type:'pack', expr:cloneNode(b.expr) });
     if (b.type === 'unpack') return mk({ type:'unpack', target:b.target });
+    if (b.type === 'add')    return mk({ type:'add', sprite:cloneNode(b.sprite) });
     if (b.type === 'note')   return mk({ type:'note', name:b.name, expr:cloneNode(b.expr) });
     if (b.type === 'ifjump') return mk({ type:'ifjump', cond:cloneNode(b.cond), target:b.target });
     if (b.type === 'assign'){
@@ -1443,12 +1779,11 @@
   /* Phase 14: note names follow the flag rules (letters/digits, <=12, and
      never a world name - the world's eight are not shadowable). */
   function validNoteName(n){
-    return /^[A-Za-z][A-Za-z0-9]*$/.test(n) && n.length <= 12 && VARS.indexOf(n) === -1;
+    return /^[A-Za-z][A-Za-z0-9]*$/.test(n) && n.length <= 12;
   }
   function uniqueNoteName(){
     let k = 1, n = 'note';
     const taken = function(x){
-      if (VARS.indexOf(x) !== -1) return true;
       return program.some(function(b){ return b.type === 'note' && b.name === x; });
     };
     while (taken(n)) n = 'note' + (++k);
@@ -1463,8 +1798,64 @@
     return root + k;
   }
 
+  /* The brick row's height, as a program LITERAL. It used to be a pixel
+     constant (`BRICK_Y`) the engine converted against the live stage, which is
+     exactly why no program could move a brick vertically and why the row
+     shifted if you resized the window. Same trade Phase 17 made for the
+     paddle's 95: a number in the program can be edited, wrapped, or driven by
+     a variable, and decimals are perfectly good literals. */
+  const BRICK_ROW_Y = 6.3636;
+
   /* ---------- the program ---------- */
   const program = [
+    /* ============ Phase 20d/e: THE PROGRAM BUILDS ITS OWN WORLD ============
+       The backpack and the stage BOTH start empty. These twenty-three rows are
+       where everything comes from.
+
+       First the numbers. They used to be eight world variables that existed
+       because the engine said so - a `START` table, a `VARS` list, private
+       ranges, and a rule that you could not shadow or redeclare them. They are
+       ordinary notes now, declared exactly the way a learner declares their
+       own, and every one of them can be renamed, deleted, or joined by another.
+
+       Then the sprites, three verbs each: MAKE one (`a new <Class>` - an
+       expression, so its value can go in a note), PUT IT SOMEWHERE (`move`),
+       and PUT IT ON THE STAGE (`add ... to the scene`). Nothing about the world
+       is the engine's secret any more.
+
+       The numbers come first because the `move` rows below read them.
+
+       All of it sits ABOVE `start` on purpose: `goto start` at the bottom of
+       the loop lands on the label, so the setup runs exactly once per run
+       without needing a guard. Under the event runtime (Phase 22) this becomes
+       the scene's `start` handler and the placement stops being a trick. */
+    note_('paddleX', num(40)),
+    note_('ballX', num(50)),
+    note_('ballY', num(55)),
+    note_('ballVelocityX', num(4)),
+    note_('ballVelocityY', num(3)),
+    note_('brick1X', num(10)),
+    note_('brick2X', num(40)),
+    note_('brick3X', num(70)),
+
+    /* Sprite order is paint order - bricks first, so the ball and paddle ride
+       over them - and it is also the order their pills appear on the shelf. */
+    note_('brick1', newOf('Brick')),
+    move_(v('brick1'), v('brick1X'), num(BRICK_ROW_Y)),
+    add_(v('brick1')),
+    note_('brick2', newOf('Brick')),
+    move_(v('brick2'), v('brick2X'), num(BRICK_ROW_Y)),
+    add_(v('brick2')),
+    note_('brick3', newOf('Brick')),
+    move_(v('brick3'), v('brick3X'), num(BRICK_ROW_Y)),
+    add_(v('brick3')),
+    note_('ball', newOf('Ball')),
+    move_(v('ball'), v('ballX'), v('ballY')),
+    add_(v('ball')),
+    note_('paddle', newOf('Paddle')),
+    move_(v('paddle'), v('paddleX'), num(PADDLE_Y)),
+    add_(v('paddle')),
+
     label('start'),
     /* Phase 13b: the arrow handlers are SUBROUTINES. They used to be places you
        jumped INTO and then had to jump out of to a third place (`goto move`),
@@ -1474,10 +1865,10 @@
        left silently win - fall-through is the whole point of a call. */
     ifKeyVisit('←','ArrowLeft','goLeft'),
     ifKeyVisit('→','ArrowRight','goRight'),
-    move_('paddle', v('paddleX'), num(PADDLE_Y)),
+    move_(v('paddle'), v('paddleX'), num(PADDLE_Y)),
     addAssign('ballX','ballX','ballVelocityX'),
     addAssign('ballY','ballY','ballVelocityY'),
-    move_('ball', v('ballX'), v('ballY')),
+    move_(v('ball'), v('ballX'), v('ballY')),
     ifEdgeJump('viewLeftEdge','<','viewRightEdge','>','ballVelocityX','bounceX'),
     ifEdgeJump('viewTopEdge','<','viewBottomEdge','>','ballVelocityY','bounceY'),
     ifPaddleJump('bounceY'),
@@ -1513,15 +1904,15 @@
     goto_('start'),
 
     label('hit1'),
-    despawn_('brick1'),
+    despawn_(v('brick1')),
     goto_('bounceY'),
 
     label('hit2'),
-    despawn_('brick2'),
+    despawn_(v('brick2')),
     goto_('bounceY'),
 
     label('hit3'),
-    despawn_('brick3'),
+    despawn_(v('brick3')),
     goto_('bounceY')
   ];
 
@@ -1537,6 +1928,7 @@
     if (n.type === 'bool')  return { type:'bool', value:n.value };
     if (n.type === 'not')   return { type:'not', operand:cloneNode(n.operand) };
     if (n.type === 'sprite') return { type:'sprite', name:n.name };
+    if (n.type === 'new')   return { type:'new', cls:n.cls };
     if (n.type === 'prop')  return { type:'prop', prop:n.prop, sprite:cloneNode(n.sprite) };
     if (n.type === 'alive') return { type:'alive', sprite:cloneNode(n.sprite) };
     if (n.type === 'touch') return { type:'touch', left:cloneNode(n.left), right:cloneNode(n.right) };
@@ -1569,7 +1961,6 @@
      instance): it renders frayed and `readVar` already halts Beep on it, so
      brokenness is shown rather than modelled in the type system. */
   function noteType(name){
-    if (VARS.indexOf(name) !== -1) return 'number';
     const d = noteDecl(name);
     return d ? typeOf(d.expr) : 'number';
   }
@@ -1592,6 +1983,7 @@
     if (node.type === 'bin'){ const o = opSig(node.op); return o ? o.out : 'number'; }
     if (node.type === 'var') return noteType(node.name);
     if (node.type === 'sprite') return 'sprite';        // Phase 12: the third type
+    if (node.type === 'new') return 'sprite';           // Phase 20c: it MAKES one
     return (node.type === 'key' || node.type === 'touch' || node.type === 'cmp'
          || node.type === 'bool' || node.type === 'not'
          || node.type === 'alive' || node.type === 'touch' || node.type === 'edge'
@@ -1676,7 +2068,7 @@
   function renderPack(){
     // the world's inputs are live DOM; update values in place so typing is not
     // interrupted, and only rebuild when a pouch's SHAPE changed (renderStack)
-    VARS.forEach(function(k){
+    Object.keys(state).forEach(function(k){
       const inp = document.getElementById('val-' + k);
       if (inp && inp !== document.activeElement) inp.value = state[k];
     });
@@ -1701,6 +2093,18 @@
            + '">'+noteVal(v)+'</span>';
     }).join('') + '</div>';
   }
+  /* Phase 18 could say "only WORLD notes have live inputs, and world notes are
+     all numbers, so the number widget never meets a sprite". Phase 20d broke
+     that: the seed program declares `new note ball = <a new Ball>` at TOP
+     LEVEL, and a top-level declaration lands in the world pouch - so the world
+     card started offering a number spinner for a note holding `Ball·1`.
+
+     The fix is to key the decision on what the note HOLDS rather than on which
+     pouch it is in, which is the shape the rule should always have had: a
+     number gets the number widget, anything else reads as its own value. It is
+     also a type-safety hole closed - `commitVar` writes straight into `state`,
+     bypassing `writeVar`, so that spinner was a door into putting a number in a
+     sprite pocket without the check that exists to refuse it. */
   function noteTiles(pouch, live, hidden){
     const names = Object.keys(pouch.notes);
     if (!names.length) return '<div class="notes empty">no notes</div>';
@@ -1708,7 +2112,8 @@
       const shadowed = hidden && hidden.indexOf(k) !== -1;
       const m = metaOf(k);
       const val = pouch.notes[k];
-      if (live) return '<div class="tile" id="tile-'+k+'">'
+      if (live && valueType(val) === 'number')
+                 return '<div class="tile" id="tile-'+k+'">'
                      +   '<div class="name">'+k+'</div>'
                      +   '<input class="val" id="val-'+k+'" data-var="'+k+'" type="number" '
                      +     'inputmode="numeric" min="'+m.min+'" max="'+m.max+'" step="'+m.step+'" '
@@ -1728,13 +2133,15 @@
     const gone = program.indexOf(pouch.label) === -1;
     return '<span class="flag'+(gone ? ' lost' : '')+'">\u2691 '+(gone ? '?' : pouch.label.name)+'</span>';
   }
-  /* A run's memory dies with the run: every pouch above the world, every parcel,
-     and any note the program invented at top level (world variables are restored
-     by the caller, which owns START). Both doors into a fresh run - the Reset
-     button and the __call.load test seam - go through here, so they cannot
-     drift apart. */
+  /* A run's memory dies with the run: every pouch above the world, every
+     parcel, and EVERY note - because since Phase 20e there is no such thing as
+     a world variable to spare. The backpack comes back empty and the program's
+     own `new note` rows refill it, which is the same bargain the stage makes.
+     Both doors into a fresh run - the Reset button and the __call.load test
+     seam - go through here, so they cannot drift apart. */
   function clearRunMemory(){
-    Object.keys(state).forEach(function(k){ if (VARS.indexOf(k) === -1) delete state[k]; });
+    // EVERY world note goes - there are no engine-owned names left to spare
+    Object.keys(state).forEach(function(k){ delete state[k]; });
     worldPouch.parcels = [];
     pouches = [worldPouch];
     open = makePouch();
@@ -1753,7 +2160,7 @@
           seen.push(k);
           rows.push('<div class="reach-row'+(dup ? ' shadowed' : '')+'">'
                   + '<span class="reach-name">'+k+'</span>'
-                  + '<span class="reach-val">'+valStr(pouches[i].notes[k])+'</span>'
+                  + '<span class="reach-val">'+noteVal(pouches[i].notes[k])+'</span>'
                   + '<span class="reach-from">'+(pouches[i].label ? '\u2691 '+pouches[i].label.name : 'world')+'</span>'
                   + '</div>');
         });
@@ -2260,13 +2667,14 @@
   btnReset.addEventListener('click', function(){
     stopAll();
     if (current){ current.timers.forEach(clearTimeout); current = null; }
-    VARS.forEach(function(k){ state[k] = START[k]; });
-    respawnAll();
     clearRunMemory();
     renderStack(); renderMarks();
     pc = 0; busy = false;
     hideBubble(); highlight(-1);
-    renderPack(); resetSpritePos(); drawAllSprites();
+    /* Phase 20c: Reset REBUILDS the scene, which is how instances the program
+       minted with `a new ...` are destroyed. No separate bookkeeping for "the
+       ones we made" - respawning the seed IS the reset. */
+    renderPack(); resetScene();
     robot.classList.remove('walking'); robot.classList.remove('leaping');
     robot.classList.remove('confused');
     robot.classList.add('home');
@@ -2292,6 +2700,11 @@
     if (inp.value === '' || inp.value === '-') return;   // allow a transient empty field
     let v = Number(inp.value);
     if (Number.isNaN(v)) return;
+    /* This is the ONE writer that does not go through `writeVar`, so it does
+       not get that function's type check for free. No spinner is drawn for a
+       non-number note any more, but a stale input could still be sitting in the
+       DOM when a row changes what a name holds - refuse rather than clobber. */
+    if (valueType(state[name]) !== 'number') return;
     v = Math.min(m.max, Math.max(m.min, Math.round(v)));
     state[name] = v;
     flashTile(name);
@@ -2365,17 +2778,23 @@
       // total movement, not just vertical: dragging a block SIDEWAYS toward
       // Trash or the spare tiles must activate too (Phase 9)
       if (Math.abs(e.clientY - drag.startY) + Math.abs(e.clientX - (drag.startX || e.clientX)) < 6) return;
-      drag.active = true;
-      const ph = document.createElement('div');
-      ph.className = 'block placeholder';
-      ph.style.height = drag.el.offsetHeight + 'px';
-      blocksBox.insertBefore(ph, drag.el);
-      drag.ph = ph;
-      drag.el.classList.add('dragging');
-      drag.el.style.width = drag.w + 'px';
-      drag.el.style.left = '0';
-      drag.el.style.position = 'absolute';
-      highlightRopes(drag.block, true);   // darken this block's connections
+      // an ARMED prototype has no block yet - this is the moment it gets one,
+      // and materializePending does the whole lift itself
+      if (drag.pending){
+        materializePending(e);
+      } else {
+        drag.active = true;
+        const ph = document.createElement('div');
+        ph.className = 'block placeholder';
+        ph.style.height = drag.el.offsetHeight + 'px';
+        blocksBox.insertBefore(ph, drag.el);
+        drag.ph = ph;
+        drag.el.classList.add('dragging');
+        drag.el.style.width = drag.w + 'px';
+        drag.el.style.left = '0';
+        drag.el.style.position = 'absolute';
+        highlightRopes(drag.block, true);   // darken this block's connections
+      }
     }
     const boxR = blocksBox.getBoundingClientRect();
     drag.el.style.top  = (e.clientY - boxR.top - drag.grabDY) + 'px';
@@ -2404,9 +2823,11 @@
     const d = drag; drag = null;
     setZoneHover(null);
     if (!d.active){
-      // just a press. A freshly materialized block goes home; a settled block's
-      // grip opens the statement menu (duplicate / stash / delete).
-      if (d.minted) unmaterialize(d);
+      /* Just a press. An ARMED prototype was never built, so there is nothing
+         to put back - which is the whole point of arming rather than
+         materializing on contact. A settled block's grip opens the statement
+         menu (duplicate / stash / delete). */
+      if (d.pending) releaseArmed(d.pending);
       else openStmtMenu(d.block);
       return;
     }
@@ -2456,9 +2877,17 @@
     lastRobotTarget = robotBlock ? Math.max(0, program.indexOf(robotBlock)) : 0;
   }
 
-  blocksBox.addEventListener('pointermove', onPointerMove);
-  blocksBox.addEventListener('pointerup', onPointerEnd);
-  blocksBox.addEventListener('pointercancel', onPointerEnd);
+  /* ON THE DOCUMENT, not on blocksBox - and that is load-bearing since
+     statement drags began ARMED. A block drag used to capture the pointer on a
+     grip INSIDE blocksBox, so every move retargeted there and bubbled to this
+     handler; an armed prototype captures on its shelf tile, which is in the
+     side column, so those events bubble up the other branch of the tree and
+     would never have arrived. The piece drags (`onSlotMove`) have always
+     listened here for the same reason. Both handlers no-op unless `drag` is
+     set, so widening the scope costs nothing. */
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerup', onPointerEnd);
+  document.addEventListener('pointercancel', onPointerEnd);
 
   /* ---------- focus: tap a statement to open its expression ---------- */
   // Only the focused statement shows its expression as draggable pieces; others
@@ -2469,7 +2898,7 @@
 
   function isFocusable(b){
     return b.type === 'assign' || b.type === 'ifjump' || b.type === 'pack' || b.type === 'ifvisit'
-        || b.type === 'note'
+        || b.type === 'note' || b.type === 'add'
         || (b.type === 'command' && b.sprite !== undefined);
   }
 
@@ -2557,6 +2986,17 @@
       return '<span class="token sprtok'+justCls(node)+'" data-sl="'+reg(parent,field)+'" tabindex="0">'
            +   node.name + '</span>';
     }
+    /* Phase 20c: a sprite-typed LEAF wearing the coral pill (dashed, because it
+       MAKES one rather than naming one) with its class as a tap-to-repoint
+       chip - the `edge` shape exactly. A class the panel has deleted frays,
+       like any other dangling reference. */
+    if (node.type === 'new'){
+      const selfId = reg(parent, field);
+      const lost = classes[node.cls] ? '' : ' lost';
+      return '<span class="token newtok'+lost+justCls(node)+'" data-sl="'+selfId+'" tabindex="0">'
+           +   'a new <span class="chip cls-chip'+lost+'" data-clschip="'+selfId+'">'+node.cls+'</span>'
+           + '</span>';
+    }
     if (node.type === 'prop'){
       // yields a NUMBER, so it wears the ordinary group box; "x of" is its handle
       const selfId = reg(parent, field);
@@ -2628,6 +3068,8 @@
            + ', '  + nodeHtml(b.y, b, 'y', false);
     if (b.type === 'command' && b.sprite !== undefined)
       return 'despawn ' + nodeHtml(b.sprite, b, 'sprite', false);
+    if (b.type === 'add')
+      return 'add ' + nodeHtml(b.sprite, b, 'sprite', false) + ' to the scene';
     return tgtChip(b.target) + ' = ' + nodeHtml(b.expr, b, 'expr', true);
   }
 
@@ -2659,6 +3101,9 @@
     document.querySelectorAll('.edge-chip[data-edge]').forEach(function(el){
       el.addEventListener('pointerdown', onEdgeChipDown);
     });
+    document.querySelectorAll('.cls-chip[data-clschip]').forEach(function(el){
+      el.addEventListener('pointerdown', onClassChipDown);
+    });
     drawWires();   // heights can shift; keep jump wires attached
     checkDivZeroEdit();   // did this edit author a fresh /0? warn via the nemesis
   }
@@ -2680,7 +3125,7 @@
     bin('+', v('ballVelocityX'), num(1)),   // number: a compound
     v('brick1X'),                            // number: a variable
     num(2),                                  // number: a literal
-    touchOf(sprite('ball'), sprite('brick2')),  // boolean: a two-sprite predicate
+    touchOf(v('ball'), v('brick2')),         // boolean: a two-sprite predicate
     keyCond('ArrowRight', '→')               // boolean: a predicate
   ];
   let trayNodes = traySeed.map(cloneNode);
@@ -2960,6 +3405,16 @@
     else if (node && node.type === 'not') openNotPop(opEl, node);
     else if (node && node.type === 'prop') openChoicePop(liveAnchor(node, opEl), node);
   }
+  // the class chip on `a new <Class>`: the same repoint-by-tapping gesture the
+  // edge chip has, pointed at the class registry instead of the four edges
+  function onClassChipDown(e){
+    if (otherButton(e)) return;
+    e.preventDefault(); e.stopPropagation();
+    const el = e.currentTarget;
+    const node = slotNode(el.dataset.clschip);
+    closeLeafPop();
+    if (node && node.type === 'new') openChoicePop(el, node);
+  }
   // Phase 10 idiom: a chip is a reference you repoint by tapping it
   function onEdgeChipDown(e){
     if (otherButton(e)) return;
@@ -3115,14 +3570,27 @@
                     bool:bool, typeOf:typeOf, identityNode:identityNode,
                     notOf:notOf, UNARY_OPS:UNARY_OPS,
                     sprite:sprite, propOf:propOf, aliveOf:aliveOf, PROPS:PROPS,
-                    SPRITES:SPRITES, spriteXY:spriteXY, spriteBox:boxOf,
+                    sceneNames:sceneNames, spriteXY:spriteXY, spriteBox:boxOf,
                     spriteAlive:spriteAlive, despawnSprite:despawnSprite,
                     // Phase 18: the typing layer, so it can be unit-tested directly
                     noteType:noteType, noteDecl:noteDecl, noteHolders:noteHolders,
+                    validNoteName:validNoteName, metaOf:metaOf,
                     varLost:varLost, valueType:valueType, fits:fits,
                     expectedTypeOf:function(id){ return expectedType(id); },
-                    spritePos:spritePos, resetSpritePos:resetSpritePos,
-                    placeSprite:function(n, x, y){ spritePos[n] = { x:x, y:y }; drawSprite(n); },
+                    spritePos:spritePos, resetScene:resetScene, spriteVel:spriteVel,
+                    placeSprite:function(n, x, y){ moveSprite(n, x, y); },
+                    // Phase 20: the class + instance registries, and the scene verbs
+                    classes:classes, instances:instances, CLASS_OPTS:CLASS_OPTS,
+                    classStyleText:classStyleText, restyleClass:restyleClass,
+                    mintInstance:mintInstance, addToScene:addToScene,
+                    removeFromScene:removeFromScene, onScene:onScene, boxOf:boxOf,
+                    newOf:newOf, classNames:function(){ return classNames(); },
+                    classHolders:function(n){ return classHolders(n); },
+                    validClassName:function(n, s){ return validClassName(n, s); },
+                    newClass:function(){ return newClass(); },
+                    renameClass:function(c, n){ return renameClass(c, n); },
+                    removeClass:function(n){ return removeClass(n); },
+                    renderClasses:function(){ return renderClasses(); },
                     touchOf:touchOf, edgeOf:edgeOf, EDGES:EDGES,
                     spritesTouch:spritesTouch, edgeTouch:edgeTouch,
                     spritesClosing:spritesClosing, closingOf:closingOf,
@@ -3144,7 +3612,7 @@
     pc:    function(){ return pc; },
     build: { visit:visit_, ifvisit:ifVisit, ret:return_, pack:pack_, unpack:unpack_, note:note_,
              ifjump:function(cond, name){ return mk({ type:'ifjump', cond:cond, target:name }); },
-             despawn:despawn_, move:move_, empty:empty_,
+             despawn:despawn_, move:move_, empty:empty_, add:add_, newOf:newOf,
              label:label, goto_:goto_, num:num, v:v, bin:bin,
              assign:function(t, e){ return mk({ type:'assign', target:t, expr:e }); } },
     load: function(list){
@@ -3246,35 +3714,63 @@
   }
 
   // number: a clamped integer, typed or nudged. Commits on Enter / outside-tap.
-  function openNumPop(anchorEl, node){
-    const pop = openPop(anchorEl);
-    popTitle(pop, 'number');
+  /* THE number control: [ - ] [ field ] [ + ]. It was the body of `openNumPop`
+     and nothing else could reach it, so when the class editor grew numeric
+     options they arrived as button lists instead - a second way to say the same
+     thing, which is how two controls drift apart. It is a shared shell now, in
+     the `hexHtml` / `popSection` sense: one silhouette, one stepping rule, one
+     clamp, whoever is asking.
+
+     `spec` is {value, min, max, step} plus an optional `onLive(n)` for editors
+     that want to follow every keystroke (the class swatch does; a number
+     literal does not, because it commits on close). Returns its `reading()` so
+     the caller decides what a committed value MEANS. */
+  function numRow(pop, spec){
     const row = document.createElement('div'); row.className = 'pop-row';
     const minus = document.createElement('button'); minus.className = 'stepper'; minus.textContent = '\u2212';
     const inp = document.createElement('input');
     inp.className = 'numedit'; inp.type = 'number'; inp.inputMode = 'decimal';
-    // step="any" lets the field accept decimals (1.1); min/max hold the safe range
-    inp.min = NUM_EDIT.min; inp.max = NUM_EDIT.max; inp.step = 'any'; inp.value = node.value;
+    // step="any" lets the field accept decimals (1.1); min/max hold the range
+    inp.min = spec.min; inp.max = spec.max; inp.step = 'any'; inp.value = spec.value;
     const plus = document.createElement('button'); plus.className = 'stepper'; plus.textContent = '+';
     row.appendChild(minus); row.appendChild(inp); row.appendChild(plus); pop.appendChild(row);
-    // clamp to the safe range WITHOUT rounding, so decimals survive; Infinity from
-    // an over-huge entry still lands on MAX_SAFE. tidy() trims the float noise the
-    // steppers can introduce (e.g. 1.1 - 1), while preserving whole numbers exactly.
-    function clampNum(x){ return Math.min(NUM_EDIT.max, Math.max(NUM_EDIT.min, x)); }
+    // clamp WITHOUT rounding, so decimals survive; Infinity from an over-huge
+    // entry still lands on the max. tidy() trims the float noise the steppers
+    // can introduce (e.g. 1.1 - 1), while preserving whole numbers exactly.
+    function clampNum(x){ return Math.min(spec.max, Math.max(spec.min, x)); }
     function tidy(x){ return parseFloat(x.toFixed(9)); }
+    // null = "nothing usable in the field yet" (empty, a lone minus, a lone dot)
+    function reading(){
+      if (inp.value === '' || inp.value === '-' || inp.value === '.') return null;
+      const val = Number(inp.value);
+      return Number.isNaN(val) ? null : clampNum(val);
+    }
+    function live(){ if (spec.onLive){ const r = reading(); if (r !== null) spec.onLive(r); } }
+    function nudge(by){
+      return function(ev){
+        ev.preventDefault();
+        inp.value = tidy(clampNum(Number(inp.value || 0) + by));
+        inp.focus(); live();
+      };
+    }
+    minus.addEventListener('click', nudge(-spec.step));
+    plus .addEventListener('click', nudge(+spec.step));
+    inp.addEventListener('input', live);
+    inp.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); closeLeafPop(); } });
+    return { row:row, input:inp, reading:reading };
+  }
+  function openNumPop(anchorEl, node){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'number');
+    const n = numRow(pop, { value:node.value, min:NUM_EDIT.min, max:NUM_EDIT.max, step:NUM_EDIT.step });
     leafPopCommit = function(){
-      if (inp.value === '' || inp.value === '-' || inp.value === '.') return;
-      const val = Number(inp.value); if (Number.isNaN(val)) return;
-      const v = clampNum(val);
-      if (v === node.value) return;      // unchanged -> don't re-render (avoids churn)
+      const v = n.reading();
+      if (v === null || v === node.value) return;   // unchanged -> don't re-render
       node.value = v; markEdited(node);
     };
-    minus.addEventListener('click', function(ev){ ev.preventDefault(); inp.value = tidy(clampNum(Number(inp.value||0) - NUM_EDIT.step)); inp.focus(); });
-    plus .addEventListener('click', function(ev){ ev.preventDefault(); inp.value = tidy(clampNum(Number(inp.value||0) + NUM_EDIT.step)); inp.focus(); });
-    inp.addEventListener('keydown', function(ev){ if (ev.key === 'Enter'){ ev.preventDefault(); closeLeafPop(); } });
     appendWrapSection(pop, node);
     appendZoneSection(pop, node);
-    requestAnimationFrame(function(){ inp.focus(); inp.select(); });
+    requestAnimationFrame(function(){ n.input.focus(); n.input.select(); });
   }
 
   /* ---- the leaf choosers ----
@@ -3287,12 +3783,32 @@
      operand type is untouched - so the always-valid invariant holds by
      construction, which is why they can share a body at all. */
   const LEAF_CHOICES = {
-    // all backpack variables are numbers, so any swap is type-safe
+    /* Phase 20d made this type-aware, and it had to. It used to offer the
+       world's eight, which are all numbers, and that was safe only because a
+       var could never sit in a sprite slot - the seed program's sprites were
+       literals. They are NOTES now, so a sprite slot routinely holds a var,
+       and offering `ballX` there would silently ill-type the slot with no drop
+       gate anywhere to catch it. So: offer every name in the program whose
+       type FITS this slot, world variables and declared notes alike. */
     var:    { title:'variable',      field:'name',
-              options:function(){ return VARS.map(function(n){ return { value:n, label:n }; }); } },
-    // no sprite->sprite ops today, so the wrap section renders silently empty
+              options:function(node){
+                const id = slotIdOf(node);
+                const want = id ? expectedType(id) : noteType(node.name);
+                const out = [], seen = [];
+                function offer(n){
+                  if (seen.indexOf(n) !== -1) return;
+                  seen.push(n);
+                  if (fits(noteType(n), want)) out.push({ value:n, label:n });
+                }
+                program.forEach(function(b){ if (b.type === 'note') offer(b.name); });
+                return out;
+              } },
+    /* No sprite->sprite ops today, so the wrap section renders silently empty.
+       Phase 20d: the options are whatever instances EXIST right now, because
+       there is no static list any more - before the program has run there are
+       none to offer, which is the honest answer. */
     sprite: { title:'which sprite',  field:'name',
-              options:function(){ return SPRITES.map(function(n){ return { value:n, label:n }; }); } },
+              options:function(){ return sceneNames().map(function(n){ return { value:n, label:n }; }); } },
     // "x of" / "y of" is the handle for the reading it introduces. It IS a
     // number, so the wrap section offers + - x div.
     prop:   { title:'which reading', field:'prop', handleOnly:true,
@@ -3304,7 +3820,14 @@
     // an edge is a CHIP, not a type: four constants, never computed and never
     // stored, so nothing can wrap it and it has nowhere to be taken out to.
     edge:   { title:'which edge',    field:'edge', plain:true, handleOnly:true,
-              options:function(){ return EDGES.map(function(o){ return { value:o.edge, label:o.label }; }); } }
+              options:function(){ return EDGES.map(function(o){ return { value:o.edge, label:o.label }; }); } },
+    /* A CLASS is a chip for the same reason an edge is: finite, chosen, never
+       computed, never stored, never the result of anything. `plain` because the
+       chip itself has nothing to be wrapped in or taken out to - the PILL
+       around it is the draggable piece, and it is served by the ordinary slot
+       machinery. */
+    new:    { title:'a new what',    field:'cls', plain:true, handleOnly:true,
+              options:function(){ return classNames().map(function(n){ return { value:n, label:n }; }); } }
   };
   function openChoicePop(anchorEl, node){
     const spec = LEAF_CHOICES[node.type];
@@ -3312,7 +3835,7 @@
     const pop = openPop(anchorEl);
     popTitle(pop, spec.title);
     const grid = popGrid(pop);
-    spec.options().forEach(function(o){
+    spec.options(node).forEach(function(o){
       optButton(grid, o.label, node[spec.field] === o.value, function(){
         node[spec.field] = o.value; markEdited(node); cancelLeafPop();
       });
@@ -3409,7 +3932,7 @@
                      tiles too, so expressions can be grown on the workbench.
        Trash      -> the fresh piece evaporates (it was never in the tree), so
                      Trash doubles as "cancel this drag".
-     A new op in OPS or variable in VARS gets a palette tile automatically. */
+     A new op in OPS gets a palette tile automatically; so does a new note. */
   const paletteEl = document.getElementById('palette');
   const PALETTE = [];
   /* Phase 8 promised "a new variable means a new tile, automatically". Phase 14
@@ -3418,12 +3941,35 @@
      PALETTE entries at all: they carry `data-note` and are synthesised on
      pointerdown, so no index can shift under the static prototypes. */
   let noteGroupEl = null;
+  let classGroupEl = null;
   function paletteItem(el){
     if (el.dataset.note !== undefined){
       const name = el.dataset.note;
       return { kind:'value', make:function(){ return v(name); } };
     }
+    if (el.dataset.newcls !== undefined){
+      const cls = el.dataset.newcls;
+      return { kind:'value', make:function(){ return newOf(cls); } };
+    }
     return PALETTE[Number(el.dataset.pi)];
+  }
+  /* Phase 8 promised "a new variable means a new tile, automatically"; a CLASS
+     makes the same promise, and keeps it the same way notes do - synthesised on
+     pointerdown from a data attribute rather than added to PALETTE, so no index
+     can shift under a shelf that is built once. */
+  function refreshClassTiles(){
+    if (!classGroupEl) return;
+    const names = classNames();
+    classGroupEl.style.display = names.length ? '' : 'none';
+    classGroupEl.innerHTML = '<div class="pal-lbl">make a sprite</div>';
+    names.forEach(function(n){
+      const t = document.createElement('span');
+      t.className = 'token newtok proto';
+      t.innerHTML = 'a new <span class="chip cls-chip">' + n + '</span>';
+      t.dataset.newcls = n;
+      t.addEventListener('pointerdown', onPaletteDown);
+      classGroupEl.appendChild(t);
+    });
   }
   function refreshNoteTiles(){
     if (!noteGroupEl) return;
@@ -3475,6 +4021,7 @@
     const ghost = src.cloneNode(true);
     ghost.classList.add('lifting');
     ghost.removeAttribute('data-pi'); ghost.removeAttribute('data-note');
+    ghost.removeAttribute('data-newcls');
     ghost.style.position = 'fixed'; ghost.style.margin = '0';
     ghost.style.width  = rect.width  + 'px'; ghost.style.height = rect.height + 'px';
     ghost.style.left   = rect.left   + 'px'; ghost.style.top    = rect.top    + 'px';
@@ -3547,11 +4094,13 @@
       pr.innerHTML = '<span class="pred-in">' + condHtml(node) + '</span>';
       return pr;
     }
+    /* Phase 20e retired the eight static variable tiles along with the
+       variables. Every one of them is a declared note now, so
+       `refreshNoteTiles` grows its tile from the program - same teal box, same
+       label, and it follows a rename or a deletion the way nothing static
+       could. Only the literal 0 is left here, because a number is not a name. */
     let g = group('numbers & variables');
     add(g, { kind:'value', make:function(){ return num(0); } }, tokenEl('num', '0'));
-    VARS.forEach(function(name){
-      add(g, { kind:'value', make:function(){ return v(name); } }, tokenEl('var', name));
-    });
     g = group('sensors');
     KEY_OPTS.forEach(function(o){
       add(g, { kind:'value', make:function(){ return keyCond(o.key, o.arrowLabel); } },
@@ -3559,12 +4108,12 @@
     });
     // touching + the edges are now sprite predicates, so ONE tile each carries
     // every case the six old touch sensors did, and more besides
-    add(g, { kind:'value', make:function(){ return touchOf(sprite('ball'), sprite('paddle')); } },
-        predEl(touchOf(sprite('ball'), sprite('paddle'))));
-    add(g, { kind:'value', make:function(){ return edgeOf(sprite('ball'), 'viewLeftEdge'); } },
-        predEl(edgeOf(sprite('ball'), 'viewLeftEdge')));
-    add(g, { kind:'value', make:function(){ return closingOf(sprite('ball'), sprite('paddle')); } },
-        predEl(closingOf(sprite('ball'), sprite('paddle'))));
+    add(g, { kind:'value', make:function(){ return touchOf(v('ball'), v('paddle')); } },
+        predEl(touchOf(v('ball'), v('paddle'))));
+    add(g, { kind:'value', make:function(){ return edgeOf(v('ball'), 'viewLeftEdge'); } },
+        predEl(edgeOf(v('ball'), 'viewLeftEdge')));
+    add(g, { kind:'value', make:function(){ return closingOf(v('ball'), v('paddle')); } },
+        predEl(closingOf(v('ball'), v('paddle'))));
     /* Phase 11b: comparisons ship as BOOLEAN value prototypes. Because
        typeOf(cmp) is 'boolean', dropAllowed offers them on condition slots and
        nowhere else, and the drop fires the ordinary `replace` verb - the sensor
@@ -3576,19 +4125,23 @@
        piece, and the two readings ship as ordinary value prototypes - typed
        number and boolean respectively, so the existing drop gate offers each one
        exactly where it fits and nowhere else. */
-    g = group('sprites');
-    SPRITES.forEach(function(name){
-      add(g, { kind:'value', make:function(){ return sprite(name); } }, tokenEl('sprtok', name));
-    });
+    /* Phase 20d retired the five static sprite pills. They named instances the
+       engine used to create; the program creates its own now, under ids nobody
+       can type (`Ball·1`), so a literal naming one would be a lie. Their
+       replacement costs nothing and was already built: the seed declares
+       `new note ball = <a new Ball>`, and `refreshNoteTiles` puts a `ball` pill
+       on the shelf automatically - same label, coral pill, dashed because it
+       STANDS FOR a sprite rather than naming one. Phase 8's promise, keeping
+       itself. */
     g = group('about a sprite');
     PROPS.forEach(function(p){
       const el = document.createElement('span');
       el.className = 'group';
-      el.innerHTML = htmlExpr(propOf(p, sprite('ball')));
-      add(g, { kind:'value', make:function(){ return propOf(p, sprite('ball')); } }, el);
+      el.innerHTML = htmlExpr(propOf(p, v('ball')));
+      add(g, { kind:'value', make:function(){ return propOf(p, v('ball')); } }, el);
     });
-    add(g, { kind:'value', make:function(){ return aliveOf(sprite('ball')); } },
-        predEl(aliveOf(sprite('ball'))));
+    add(g, { kind:'value', make:function(){ return aliveOf(v('ball')); } },
+        predEl(aliveOf(v('ball'))));
     g = group('yes / no');
     [true, false].forEach(function(val){
       add(g, { kind:'value', make:function(){ return bool(val); } }, predEl(bool(val)));
@@ -3608,6 +4161,8 @@
     // identity assign, jumps that bind to the nearest flag on landing, a fresh
     noteGroupEl = group('notes');       // filled by refreshNoteTiles, hidden when empty
     noteGroupEl.style.display = 'none';
+    classGroupEl = group('classes');    // filled by refreshClassTiles from the class panel
+    classGroupEl.style.display = 'none';
     // flag, and the two atomic commands (visibly named, so opt-in behaviour).
     g = group('statements');
     function stmtProto(make){
@@ -3628,8 +4183,11 @@
     stmtProto(function(){ return label(uniqueLabelName('flag')); });
     // identity default: a fresh `move` puts a sprite exactly where it already
     // is, so dropping one in changes nothing until you tune it
-    stmtProto(function(){ return move_('ball', propOf('x', sprite('ball')), propOf('y', sprite('ball'))); });
-    stmtProto(function(){ return despawn_('brick1'); });
+    stmtProto(function(){ return move_(v('ball'), propOf('x', v('ball')), propOf('y', v('ball'))); });
+    stmtProto(function(){ return despawn_(v('brick1')); });
+    // the shelf default MAKES one and PUTS IT THERE, which is the whole gesture
+    // in one row; both halves are ordinary pieces you can then repoint
+    stmtProto(function(){ return add_(newOf(classNames()[0] || 'class1')); });
     stmtProto(function(){ return visit_('?'); });
     stmtProto(function(){ return ifVisit(keyCond('ArrowLeft','\u2190'), '?'); });
     stmtProto(function(){ return return_(); });
@@ -4116,7 +4674,6 @@
         flashTile(name);
       });
     }
-    VARS.forEach(offer);
     // Phase 14: every note currently in reach, nearest pouch first
     for (let i = pouches.length - 1; i >= 0; i--) Object.keys(pouches[i].notes).forEach(offer);
     // ...plus every note name the PROGRAM declares, so you can author a write
@@ -4140,22 +4697,327 @@
     if (chipEl.classList.contains('note-chip')) return openNotePop(b, chipEl);
   }, true);
 
+  /* ================= Phase 20b: the class panel =================
+     A class has no source-code form - there is no `class Ball { ... }` row in
+     the program - so its editor IS its representation. One card per class, and
+     the card's swatch is a live DIV wearing the class's own declarations: not a
+     picture OF the class but an instance of it, standing still. Every edit goes
+     through `setClassOpt`, which restyles every sprite of that class on the
+     stage in the same breath. */
+  const classesEl = document.getElementById('classes');
+
+  /* ONE namespace check, exactly as the plan asked. A class name may not
+     collide with another class, a flag, a world variable or a declared note -
+     because all four are things a learner names, and two of them meeting would
+     make `a new Ball` and `visit Ball` read as the same word. Shape follows
+     `validFlagName`: letters and digits, twelve characters, starts with a letter. */
+  function nameTaken(name, self){
+    if (classes[name] && classes[name] !== self) return true;
+    if (labelIndex(name) !== -1) return true;
+    return program.some(function(b){ return b.type === 'note' && b.name === name; });
+  }
+  function validClassName(name, self){
+    if (!/^[A-Za-z][A-Za-z0-9]{0,11}$/.test(name)) return false;
+    return !nameTaken(name, self);
+  }
+  function uniqueClassName(){
+    let k = 1, n = 'class1';
+    while (nameTaken(n, null)) n = 'class' + (++k);
+    return n;
+  }
+  /* "+ new class" mints an ALWAYS-VALID default - a grey 20x20 square with
+     every declaration filled in. The always-valid invariant applied to
+     appearance: there is no half-made class, no empty style, nothing to
+     complete before it can be instantiated. */
+  function newClass(){
+    const n = uniqueClassName();
+    defClass(n, 20, 20, { 'background-color':'#9AA0B5', 'background-image':'none',
+                          'border-color':'#2E2A3B', 'border-width':'2px',
+                          'border-radius':'4px' });
+    renderClasses();
+    return n;
+  }
+  // every `a new <Class>` node in the program or the tray that names this class
+  // (the class-side twin of noteHolders, and it walks the same fields)
+  function classHolders(name){
+    const out = [];
+    function walk(n){
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'new'){ if (n.cls === name) out.push(n); return; }
+      ['left','right','operand','sprite','expr','cond','x','y'].forEach(function(f){ walk(n[f]); });
+    }
+    program.forEach(function(b){ ['expr','cond','sprite','x','y'].forEach(function(f){ walk(b[f]); }); });
+    trayNodes.forEach(walk);
+    return out;
+  }
+  // which program rows hold any of these nodes - the class-deletion dialog
+  // highlights them, the way the flag dialog highlights ropes
+  function rowsHolding(nodes){
+    const set = nodes.slice();
+    function walk(n){
+      if (!n || typeof n !== 'object') return false;
+      if (set.indexOf(n) !== -1) return true;
+      return ['left','right','operand','sprite','expr','cond','x','y']
+        .some(function(f){ return walk(n[f]); });
+    }
+    return program.filter(function(b){
+      return ['expr','cond','sprite','x','y'].some(function(f){ return walk(b[f]); });
+    });
+  }
+  /* RENAME IS A REFACTOR, exactly as it is for a flag: the name is the
+     identity, every `a new <Class>` chip follows, and every live instance's
+     class pointer follows too. Card order is preserved by rebuilding the
+     registry in place - a rename must not reshuffle the panel. */
+  function renameClass(c, name){
+    const old = c.name;
+    if (name === old || !validClassName(name, c)) return;
+    const next = {};
+    Object.keys(classes).forEach(function(k){ next[k === old ? name : k] = classes[k]; });
+    Object.keys(classes).forEach(function(k){ delete classes[k]; });
+    Object.keys(next).forEach(function(k){ classes[k] = next[k]; });
+    c.name = name;
+    Object.keys(instances).forEach(function(id){
+      if (instances[id].cls === old){
+        instances[id].cls = name;
+        if (instances[id].el) instances[id].el.dataset.cls = name;
+      }
+    });
+    classHolders(old).forEach(function(n){ n.cls = name; });
+    refreshAllStmts(); renderSlots(); renderClasses();
+  }
+  /* Deleting a class that `a new <Class>` nodes hold gets the LABEL-DELETION
+     treatment (Phase 9's sanctioned crack in always-valid): confirm with the
+     holders highlighted, and afterwards those chips FRAY, exactly as a jump to
+     a deleted flag does. The program stays runnable; `a new <a class nobody
+     has>` halts Beep on the row instead of quietly making nothing. */
+  function requestRemoveClass(name){
+    const holders = classHolders(name);
+    if (holders.length){ openClassDialog(name, holders); return; }
+    removeClass(name);
+  }
+  function removeClass(name){
+    // a sprite whose class is gone has no size and no look, so it cannot stay
+    Object.keys(instances).forEach(function(id){
+      if (instances[id].cls === name) destroyInstance(id);
+    });
+    delete classes[name];
+    refreshAllStmts(); renderSlots(); renderClasses();
+  }
+  let classModal = null;
+  function openClassDialog(name, holders){
+    closeLeafPop();
+    if (classModal) classModal.remove();
+    const rows = rowsHolding(holders);
+    rows.forEach(function(b){ if (b.el) b.el.classList.add('holder-hi'); });
+    const n = holders.length;
+    const veil = document.createElement('div');
+    veil.className = 'modal-veil';
+    veil.innerHTML =
+        '<div class="collapse-modal" role="dialog" aria-modal="true" aria-label="Remove class">'
+      +   '<div class="cm-title">Remove this class?</div>'
+      +   '<div class="cm-rows">'
+      +     '<span class="cm-lbl">Class</span><span class="expr-preview">' + name + '</span>'
+      +   '</div>'
+      +   '<div class="cm-note">' + n + (n === 1 ? ' piece makes' : ' pieces make')
+      +     ' a new ' + name + '. The class will be removed, its sprites will leave the'
+      +     ' stage, and those pieces will point at <b>nothing</b>.'
+      +     ' If Beep tries one, he will stop, confused.</div>'
+      +   '<div class="cm-btns">'
+      +     '<button class="btn cm-cancel" type="button">Keep it</button>'
+      +     '<button class="btn danger cm-go" type="button">Remove it</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(veil);
+    classModal = veil;
+    function close(){
+      rows.forEach(function(b){ if (b.el) b.el.classList.remove('holder-hi'); });
+      veil.remove(); if (classModal === veil) classModal = null;
+      document.removeEventListener('keydown', onKey, true);
+    }
+    function go(){ close(); removeClass(name); }
+    function onKey(ev){
+      if (ev.key === 'Escape'){ ev.preventDefault(); close(); }
+      else if (ev.key === 'Enter'){ ev.preventDefault(); go(); }
+    }
+    veil.querySelector('.cm-cancel').addEventListener('click', close);
+    veil.querySelector('.cm-go').addEventListener('click', go);
+    veil.addEventListener('pointerdown', function(ev){ if (ev.target === veil) close(); });
+    document.addEventListener('keydown', onKey, true);
+    veil.querySelector('.cm-go').focus();
+  }
+
+  // repaint just this card's swatch, for edits that must not rebuild the panel
+  // out from under an input the learner is still typing in
+  function repaintCard(c){
+    const face = classesEl.querySelector('[data-cls="' + c.name + '"] .sprite');
+    if (face) face.setAttribute('style', classStyleText(c));
+  }
+  /* One write, one restyle, one redraw - the single door every style edit
+     takes. A numeric option carries its `unit` back into the declaration here,
+     which is what lets the editor deal in plain numbers while the class still
+     holds ordinary CSS. `live` is the number field following every keystroke:
+     same write, same restyle, but only the swatch is repainted. */
+  function setClassOpt(c, o, val, live){
+    if (o.size) c[o.key] = val; else c.style[o.key] = val + (o.unit || '');
+    restyleClass(c.name);
+    if (live) repaintCard(c); else renderClasses();
+  }
+  // the number BEHIND a declaration: '2px' -> 2, and a size is already one
+  function classOptNum(c, o){
+    return o.size ? c[o.key] : (parseFloat(c.style[o.key]) || 0);
+  }
+  /* The whole editor, derived from CLASS_OPTS: one `popSection` per option,
+     four widget kinds. Adding an appearance option really is one registry
+     entry - this body never learns its name. */
+  function openClassPop(anchorEl, c){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'how a ' + c.name + ' looks');
+    CLASS_OPTS.forEach(function(o){
+      const cur = c.style[o.key];          // swatch + text options read the declaration
+      const sec = popSection(o.title);
+      if (o.kind === 'swatch'){
+        const g = document.createElement('div'); g.className = 'swatch-grid';
+        PAINTS.forEach(function(p){
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'swatch' + (String(cur).toLowerCase() === p.toLowerCase() ? ' cur' : '');
+          b.style.background = p;
+          b.title = p;
+          b.addEventListener('click', function(ev){
+            ev.preventDefault(); setClassOpt(c, o, p); cancelLeafPop(); openClassPop(anchorEl, c);
+          });
+          g.appendChild(b);
+        });
+        sec.grid.remove(); sec.sec.appendChild(g);
+      } else if (o.kind === 'num'){
+        /* THE SAME CONTROL A NUMBER LITERAL GETS - not a lookalike. It follows
+           every keystroke and every tap of the steppers, so the swatch and the
+           sprites on the stage change under your hand. */
+        sec.grid.remove();
+        numRow(sec.sec, { value:classOptNum(c, o), min:o.min, max:o.max, step:o.step,
+                          onLive:function(val){ setClassOpt(c, o, val, true); } });
+      } else {
+        const row = document.createElement('div'); row.className = 'pop-row';
+        const inp = document.createElement('input');
+        inp.className = 'numedit flagedit'; inp.type = 'text';
+        inp.value = cur === undefined ? 'none' : cur;
+        inp.setAttribute('spellcheck', 'false');
+        // one CSS value in one declaration - no validation beyond that, by design
+        inp.addEventListener('change', function(){ setClassOpt(c, o, inp.value.trim() || 'none'); });
+        row.appendChild(inp); sec.grid.remove(); sec.sec.appendChild(row);
+        if (o.hint){
+          const h = document.createElement('div'); h.className = 'pop-note';
+          h.textContent = o.hint; sec.sec.appendChild(h);
+        }
+      }
+      pop.appendChild(sec.sec);
+    });
+  }
+  // renaming a class: the flag-rename editor, with the shared namespace check
+  function openClassNamePop(anchorEl, c){
+    const pop = openPop(anchorEl);
+    popTitle(pop, 'call this class');
+    const row = document.createElement('div'); row.className = 'pop-row';
+    const inp = document.createElement('input');
+    inp.className = 'numedit flagedit'; inp.type = 'text'; inp.maxLength = 12;
+    inp.value = c.name; inp.setAttribute('spellcheck', 'false');
+    row.appendChild(inp); pop.appendChild(row);
+    const note = document.createElement('div'); note.className = 'pop-note';
+    note.textContent = 'every `a new ...` piece follows along';
+    pop.appendChild(note);
+    inp.addEventListener('input', function(){
+      inp.classList.toggle('bad', !validClassName(inp.value.trim(), c));
+    });
+    leafPopCommit = function(){ renameClass(c, inp.value.trim()); };   // invalid: quietly kept
+    inp.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter'){ ev.preventDefault(); closeLeafPop(); }
+    });
+    setTimeout(function(){ inp.focus(); inp.select(); }, 0);
+  }
+
+  function renderClasses(){
+    if (!classesEl) return;
+    classesEl.innerHTML = '';
+    classNames().forEach(function(n){
+      const c = classes[n];
+      const card = document.createElement('div');
+      card.className = 'cls-card'; card.dataset.cls = n;
+      const sw = document.createElement('div');
+      sw.className = 'cls-swatch';
+      const face = document.createElement('div');
+      face.className = 'sprite';
+      // the swatch IS an instance of the class, standing still
+      face.setAttribute('style', classStyleText(c));
+      sw.appendChild(face);
+      const chip = document.createElement('span');
+      chip.className = 'chip cls-chip'; chip.textContent = n;
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'cls-del'; del.textContent = '\u00D7';
+      del.setAttribute('aria-label', 'Remove the ' + n + ' class');
+      card.appendChild(sw); card.appendChild(chip); card.appendChild(del);
+      classesEl.appendChild(card);
+      sw.addEventListener('click', function(ev){ ev.stopPropagation(); openClassPop(sw, c); });
+      chip.addEventListener('click', function(ev){ ev.stopPropagation(); openClassNamePop(chip, c); });
+      del.addEventListener('click', function(ev){ ev.stopPropagation(); requestRemoveClass(n); });
+    });
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'cls-new'; add.textContent = '+ new class';
+    add.addEventListener('click', function(){ newClass(); });
+    classesEl.appendChild(add);
+    refreshClassTiles();       // a class is a shelf piece too: `a new <Class>`
+  }
+
   /* -- materialized drags: a statement arrives as a REAL block under the
         pointer and rides the ordinary reorder machinery (same gap, same
-        commit). Sources: the palette (mints) and the spare tiles (returns). -- */
-  function startMaterializedDrag(e, b, fromTray){
-    b.el = null; b.wireEl = null;            // stale refs from a previous life
+        commit). Sources: the palette (mints) and the spare tiles (returns).
+
+     A DRAG BEGINS ON MOVEMENT, NOT ON CONTACT. The first version built the
+     block on pointerdown and set `active` straight away, which shipped two bugs
+     that were really one: a plain tap on a shelf statement APPENDED it to the
+     program (the drag was already "active", so pointerup took the commit path
+     and `unmaterialize` was unreachable dead code), and the row appearing on
+     contact grew the program column, which shoves the sticky side column down
+     the page when it is scroll-clamped against the taller half of the grid.
+     Both go away by arming and waiting: nothing exists until the pointer has
+     travelled the same 6px every other block drag asks for, so a tap creates
+     nothing and there is nothing to undo. This is also what the palette's VALUE
+     prototypes have always done (`onPaletteDown` lifts a ghost, and the tree is
+     only touched on a real drop). -- */
+  function armMaterializedDrag(e, make, fromTray, trayBlock){
+    const src = e.currentTarget;
+    drag = {
+      pending: { make:make, fromTray:!!fromTray, trayBlock:trayBlock || null,
+                 srcEl:src, pointerId:e.pointerId },
+      startX: e.clientX, startY: e.clientY,
+      active: false, minted: true, ph: null
+    };
+    try { src.setPointerCapture(e.pointerId); } catch(err){}
+  }
+  function releaseArmed(p){
+    try { if (p.srcEl) p.srcEl.releasePointerCapture(p.pointerId); } catch(err){}
+  }
+  // the pointer has moved: NOW the statement becomes a real block under it
+  function materializePending(e){
+    const p = drag.pending;
+    drag.pending = null;
+    releaseArmed(p);                          // the tray re-render is about to void srcEl
+    if (p.trayBlock){                         // a spare tile leaves the tray only now
+      const i = trayNodes.indexOf(p.trayBlock);
+      if (i !== -1) trayNodes.splice(i, 1);
+      renderSlots();
+    }
+    const b = p.make();
+    b.el = null; b.wireEl = null;             // stale refs from a previous life
     buildBlock(b);                            // lands at the end; the gap tracks the pointer
     if (program.indexOf(b) === -1) program.push(b);
     const el = b.el, grip = b.gripEl;
     const h = el.offsetHeight || 34;
-    drag = {
-      el: el, block: b, grip: grip,
-      startX: e.clientX, startY: e.clientY,
-      grabDX: Math.min(60, (el.offsetWidth || 200) / 2), grabDY: h / 2,
-      w: el.offsetWidth || (blocksBox.clientWidth - 8),
-      active: true, ph: null, minted: true, fromTray: !!fromTray
-    };
+    drag.el = el; drag.block = b; drag.grip = grip;
+    drag.grabDX = Math.min(60, (el.offsetWidth || 200) / 2);
+    drag.grabDY = h / 2;
+    drag.w = el.offsetWidth || (blocksBox.clientWidth - 8);
+    drag.fromTray = p.fromTray;
+    drag.active = true;
     const ph = document.createElement('div');
     ph.className = 'block placeholder';
     ph.style.height = h + 'px';
@@ -4165,23 +5027,9 @@
     el.style.width = drag.w + 'px';
     el.style.left = '0';
     el.style.position = 'absolute';
-    const boxR2 = blocksBox.getBoundingClientRect();
-    el.style.top  = (e.clientY - boxR2.top - drag.grabDY) + 'px';
-    el.style.left = (e.clientX - boxR2.left - drag.grabDX) + 'px';
     highlightRopes(b, true);
-    grip.setPointerCapture(e.pointerId);
+    try { grip.setPointerCapture(p.pointerId); } catch(err){}
     drawWires();
-  }
-  // a mere tap: put the materialized block back where it came from
-  function unmaterialize(d){
-    const i = program.indexOf(d.block);
-    if (i !== -1) program.splice(i, 1);
-    d.block.el.remove();
-    if (d.block.wireEl){ d.block.wireEl.remove(); d.block.wireEl = null; }
-    if (d.fromTray) trayNodes.push(d.block);
-    renderSlots();
-    drawWires();
-    robotToBlock(lastRobotTarget);
   }
   // both statement-drag doors open the same way: primary button, nothing else
   // already dragging, and the chooser dismissed before a block starts moving
@@ -4194,14 +5042,13 @@
   function onStmtProtoDown(e){
     if (!stmtDragOpens(e)) return;
     const item = PALETTE[Number(e.currentTarget.dataset.pi)];
-    startMaterializedDrag(e, item.make(), false);
+    // `make` is deferred too: a prototype that is never dragged mints nothing
+    armMaterializedDrag(e, function(){ return item.make(); }, false, null);
   }
   function onStmtTileDown(e){
     if (!stmtDragOpens(e)) return;
     const b = trayNodes[Number(e.currentTarget.dataset.st)];
-    trayNodes.splice(trayNodes.indexOf(b), 1);
-    renderSlots();
-    startMaterializedDrag(e, b, true);
+    armMaterializedDrag(e, function(){ return b; }, true, b);
   }
 
   document.addEventListener('pointermove', onSlotMove);
@@ -4397,8 +5244,8 @@
     drawAllSprites();
   }
   window.addEventListener('resize', layout);
-  VARS.forEach(function(k){ state[k] = START[k]; });
-  resetSpritePos();
+  resetScene();
+  renderClasses();
   renderStack();
   renderSlots();
   renderPack(); layout(); robotToBlock(0);

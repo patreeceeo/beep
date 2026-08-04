@@ -60,6 +60,9 @@ async function dragProto(protoEl, x, y, stack) {
   ok(Number.isFinite(L.divCheck(bin('/', num(5), num(0))).value), 'flagged result stays finite');
 
   console.log('T2: an assign that divides by zero refuses the write');
+  // Phase 20e: no world variables - a top-level name exists because a row made
+  // it, so make one here the way the seed program does
+  L.state.ballX = 50;
   const before = L.state.ballX;
   const r = L.execStmt({ type:'assign', target:'ballX', expr: bin('/', num(1), num(0)) });
   ok(r.divZero === true, 'execStmt surfaces divZero');
@@ -95,8 +98,9 @@ async function dragProto(protoEl, x, y, stack) {
 
   console.log('T4: at run time Beep reaches the /0 and stops, confused');
   const ballXbefore = L.state.ballX;
+  // Phase 20d: fifteen setup rows run before the loop, so give him room to reach it
   let confused = false, steps = 0;
-  for (let k = 0; k < 18 && !confused; k++){
+  for (let k = 0; k < 40 && !confused; k++){
     L.stepInstant(); steps++;
     if (robot.classList.contains('confused')) confused = true;
   }
@@ -109,10 +113,13 @@ async function dragProto(protoEl, x, y, stack) {
   // move's x and y are ordinary expressions, so they answer to the same rule an
   // assign does: a poisoned coordinate refuses the write and parks Beep.
   const C = window.__call, Bd = C.build;
-  L.placeSprite('ball', 20, 20);
-  C.load([ Bd.move('ball', bin('/', num(5), num(0)), num(30)), Bd.label('end') ]);
+  /* Phase 20d: there is no sprite called `ball` any more - the program mints
+     its own. Make one here the way the seed does, then poison its coordinate. */
+  const ballId = L.mintInstance('Ball');
+  L.placeSprite(ballId, 20, 20);
+  C.load([ Bd.move(ballId, bin('/', num(5), num(0)), num(30)), Bd.label('end') ]);
   L.stepInstant();
-  ok(L.evalExpr(L.propOf('x', L.sprite('ball'))) === 20, 'the sprite did not move');
+  ok(L.evalExpr(L.propOf('x', L.sprite(ballId))) === 20, 'the sprite did not move');
   ok(/does not compute/.test(document.getElementById('bubble').textContent),
      'and Beep says why: ' + document.getElementById('bubble').textContent);
   ok(C.pc() === 0, 'pc parked on the move row');

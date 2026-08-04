@@ -13,7 +13,7 @@ reasoning, old ones keep only what is still true and still load-bearing.
   documented inline with a comment block explaining its invariant.
 - **Preview:** the in-app split view shows blank; test by opening the .html in a
   real browser (it needs real JS + keyboard/pointer input).
-- **Persisted:** `beep.html`, this file, the ten `test-*.js` suites,
+- **Persisted:** `beep.html`, this file, the ten `test-*.js` suites, `fp3.js`,
   `package.json` (+ lockfile).
 - **Generated — recreate, don't commit:** `node_modules` (`npm install`),
   `beep-extract.js` (script extraction for `node --check`), any `patch*.py`
@@ -52,7 +52,8 @@ Corollaries the whole codebase leans on:
 ## AST model (quick reference)
 - **Statements:** `label`, `goto`, `ifjump`, `ifvisit`, `visit`, `return`,
   `assign`, `command`, `pack`, `unpack`, `note` (`new note n = ⟨seed⟩`), `empty`
-  (`empty the pouch I am packing`). The control-flow grid is
+  (`empty the pouch I am packing`), `add` (`add ⟨sprite⟩ to the scene`). The
+  control-flow grid is
   (one-way | comes-back) x (always | if) and all four cells are filled:
 
   |                            | always  | if        |
@@ -64,7 +65,8 @@ Corollaries the whole codebase leans on:
   (literal), `cmp{op,left,right}` (boolean-typed, but its OPERANDS are numbers),
   `not{operand}` (the only UNARY node), `touch{left,right}`, `closing{left,right}`,
   `edge{sprite,edge}`, `alive{sprite}`. Sprites: `sprite{name}`, `prop{prop,sprite}`
-  (`x/y of`). A `bin` is BOTH number and boolean material: it takes its type from
+  (`x/y of`), `new{cls}` (`a new ⟨Class⟩` — the one EFFECTFUL expression). A
+  `bin` is BOTH number and boolean material: it takes its type from
   its op (`+` number, `and` boolean).
 - **Constructors:** `v`, `num`, `bin`, `keyCond`, `cmp`, `bool`, `notOf`; builders
   `label/goto_/…`.
@@ -78,11 +80,18 @@ Corollaries the whole codebase leans on:
 - **Testing seams:** `window.__lang` (evaluation), `window.__drop` (verb table +
   gate), `window.__call` (install a small program and drive it with `stepInstant`).
 
-**Counts asserted by the suites** (bump them when the shelf grows): **37** piece
-prototypes (`.proto:not(.stmt-tile)`) = 1 num + 8 vars + 2 keys + touch + edge +
-closing + 5 sprites + 3 readings + 2 yes/no + 6 comparisons + 7 ops; **13**
-statement prototypes; **4** side panels (Stage / backpack / new pieces / spare
-tiles); **4** help discs.
+**Counts asserted by the suites** (bump them when the shelf grows): **40** piece
+prototypes (`.proto:not(.stmt-tile)`) = 1 num + 2 keys + touch + edge + closing
++ 3 readings + 2 yes/no + 6 comparisons + 7 ops + **3 `a new ⟨Class⟩`** +
+**13 NOTE tiles** (8 numbers + 5 sprites); **14** statement prototypes; **5**
+side panels (Stage / **classes** / backpack / new pieces / spare tiles); **5**
+help discs.
+**Only 24 of those 40 are static, and none of them is a variable.** The class
+tiles (`refreshClassTiles`, `data-newcls`) track however many classes exist, and
+every variable pill is a note tile (`refreshNoteTiles`, `data-note`) tracking
+whatever the PROGRAM declares — the five static sprite pills retired in Phase
+20d, the eight variable tiles in 20e. Load a different program and both groups
+change; that is the Phase-8 promise, not a bug.
 
 ### The four slot types
 `number` · `boolean` · `sprite` — and `any`, which is not a value type at all:
@@ -136,15 +145,30 @@ its type, collapse would leave something of the wrong type in the slot. Hence:
   wears (`touch`, `closing`, `edge`, `alive`, `bool`, `cmp`, `key`). Outer span is
   the border ring and the drag/tap target, inner span the fill; only the contents
   differ. A new boolean node type inherits the silhouette by asking for it.
-- **`boxOf(name)`** — the ONE geometry function. Phase 17's `ballBox`/`paddleBox`/
+- **`boxOf(id)`** — the ONE geometry function. Phase 17's `ballBox`/`paddleBox`/
   `brickBox`/`spriteBox` had all decayed into `return boxOf(name)` and are gone;
-  `__lang.spriteBox` still points here so the suites read naturally.
+  `__lang.spriteBox` still points here so the suites read naturally. Phase 20
+  pointed it at the INSTANCE's position and its CLASS's size; it still knows no
+  names.
+- **`classStyleText(c)`** — a class as one inline style string. The card's
+  swatch and every live instance are painted from this same call, so a look
+  cannot drift between the panel and the stage.
+- **`exprFault(flash)`** — one place asks "did evaluating that go wrong?" (`/0`,
+  a name nobody has, a deleted class). Six statements call it, so the next
+  failure mode is one line rather than six.
 - **`clearRunMemory()`** — a run's memory dies with the run. Both doors into a
   fresh run (the Reset button, the `__call.load` seam) go through it, so they
   cannot drift apart.
 - **`popSection(title)` / `commitThen(fn)`** — a titled chooser sub-section, and
   the "flush the half-typed number before acting" wrapper both "wrap in" and
   "take out" need.
+- **`numRow(pop, spec)`** — THE number control, `[ − ] [ field ] [ + ]`. It was
+  the body of `openNumPop` and nothing else could reach it, so when the class
+  editor grew numeric options they arrived as button lists: a second way to say
+  the same thing, which is how two controls drift apart. One silhouette, one
+  stepping rule, one clamp, whoever is asking. `spec.onLive(n)` is for editors
+  that follow every keystroke (the class swatch does; a number literal commits
+  on close).
 - **`otherButton(e)`** — every pointerdown handler asks the same question first;
   `stmtDragOpens(e)` is the fuller prologue the two statement-drag doors share.
 
@@ -196,10 +220,33 @@ fresh piece. New op or variable ⇒ its palette tile appears automatically.
 
 9. **Statements are material too** — add / delete / duplicate / stash. Shelf
 statements are identity no-ops; jumps carry `target:'?'` and **bind to the nearest
-flag below on drop** (`bindJumpTarget`). A shelf/tray statement becomes a REAL block
-at once (`startMaterializedDrag`) and rides the ordinary reorder machinery; a mere
-tap `unmaterialize`s it. ONE tray holds both statement tiles (`.stmt-tile`, never in
-`slotReg`) and expression tiles. Reset restores the whole LIST from `programSeed`.
+flag below on drop** (`bindJumpTarget`). A shelf/tray statement is ARMED on
+pointerdown and becomes a REAL block on the first 6px of movement
+(`armMaterializedDrag` → `materializePending`), then rides the ordinary reorder
+machinery; **a tap creates nothing at all.** ONE tray holds both statement tiles
+(`.stmt-tile`, never in `slotReg`) and expression tiles. Reset restores the whole
+LIST from `programSeed`.
+- **A DRAG BEGINS ON MOVEMENT, NOT ON CONTACT** — and it did not, until a bug
+  report. The original built the block on pointerdown and set `active` straight
+  away, which shipped two symptoms of one mistake: a plain tap on a shelf
+  statement APPENDED it to the end of the program (pointerup took the commit
+  path, and the `unmaterialize` "put it back" branch was **unreachable dead code
+  the whole time** — this doc even described it as working), and the row
+  appearing on contact grew the program column, which shoves the sticky side
+  column down the page whenever it is scroll-clamped against the taller half of
+  the grid. Arming and waiting kills both: nothing exists until the pointer has
+  travelled the same 6px every other block drag asks for, so a tap has nothing
+  to undo. The value prototypes have always worked this way (`onPaletteDown`
+  lifts a ghost; the tree is only touched on a real drop).
+- **The block-drag listeners live on `document`, and that is load-bearing.** They
+  used to be on `blocksBox`, which worked only because a drag captured the
+  pointer on a grip INSIDE it. An armed prototype captures on its SHELF TILE, in
+  the side column, so its moves bubble up the other branch of the tree and the
+  drag would never activate. `onSlotMove` has always listened on `document` for
+  the same reason. **The suite nearly missed this**: `dragStmt` dispatches on
+  `blocksBox`, which bubbles to `document` either way, so it cannot tell the two
+  wirings apart — T2d dispatches on the shelf tile instead, where the capture
+  actually puts the events.
 - **The nemesis:** confirming deletion of a wired flag runs a show first
   (`nemesisZap`) — Beep's rival drops in at the flag, glides to each holder jump,
   zaps its rope, leaves, and only THEN does `removeStmt` run. The data change is
@@ -415,8 +462,9 @@ re-tries it blind.
 backpack panel. Every `visit` pushes one, every `return` pops one, and `pouches[0]`
 is **the world** — pinned, never popped, and its notes ARE `state` (same object
 identity), so every direct `state[...]` read in the engine kept working untouched.
-A **note** is a variable living in a pouch; the eight game variables are simply the
-world's notes. The **open pouch** is an always-present staging pouch above the active
+A **note** is a variable living in a pouch; the eight game variables were "simply
+the world's notes" from here on, and **Phase 20e finished the sentence** — they
+are notes the PROGRAM declares, and the world starts empty. The **open pouch** is an always-present staging pouch above the active
 one: it has parcels but no label, no notes and no return-ref, and it is deliberately
 NOT in the `pouches` array, which makes "invisible to name resolution, exempt from
 CALL_MAX" true by construction rather than by filtering.
@@ -567,6 +615,16 @@ name to find out where something is — the convention lives in the PROGRAM, whi
 
 ## Verification pattern
 - Extract `<script>`, run `node --check`.
+- **`fp3.js <file>` is the gameplay regression harness** and the reason Phases
+  17 and 20 could claim "byte-identical" honestly. It plays the seed headlessly
+  in three input modes (idle / left / right) and hashes the SEQUENCE of distinct
+  (ball position, velocity, paddleX, which bricks are alive) states, so it is
+  insensitive to how many statements the program takes to get there — which
+  matters, because Phase 20d added fifteen setup rows and a per-step sample
+  would have shown 335 spurious differences. Run it against the previous
+  `beep.html` (`git show HEAD:beep.html > old.html`) and diff. **Stub the stage
+  size**: jsdom reports `clientHeight` 0, and every derived position is then
+  nonsense-but-stable, which hides real geometry changes.
 - jsdom harness: polyfill `setPointerCapture`/`releasePointerCapture` (no-op),
   `elementsFromPoint=()=>[]`, force `requestAnimationFrame=cb=>setTimeout(cb,0)`.
   Drive the REAL handlers via dispatched pointer/mouse events; assert structure.
@@ -590,19 +648,19 @@ name to find out where something is — the convention lives in the PROGRAM, whi
   bookmarks-are-nodes rule, LIFO nesting, the `/0` guards, the `expectedType` field
   keying, and both rejected Phase-14 designs.
 
-### Suite status — all ten green, **661 asserts**
+### Suite status — all ten green, **839 asserts**
 | suite | asserts | covers |
 |---|---|---|
 | `test-phase8.js` | 30 | palette, mint-on-drag, replace/wrap, shelf counts |
-| `test-phase9.js` | 65 | statements as material, panels, help discs, nemesis, chips |
+| `test-phase9.js` | 76 | statements as material, panels, help discs, nemesis, chips |
 | `test-drop.js` | 33 | `DROP_TABLE` totality + the `accepts` gate, exhaustively |
 | `test-grammar.js` | 36 | `×`/`÷` and the op registry |
 | `test-diverror.js` | 18 | divide-by-zero, both surfaces, incl. `move` coordinates |
 | `test-compare.js` | 81 | comparisons: eval, flip-is-negation, drop, refusals |
 | `test-bool.js` | 84 | and/or/not, in===out, De Morgan, identity-is-a-no-op |
-| `test-sprite.js` | 94 | Phases 12 and 15–17, incl. the per-axis `isClosingOn` regressions |
-| `test-call.js` | 128 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt |
-| `test-notes.js` | 92 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels; Phase 19's `empty` |
+| `test-sprite.js` | 239 | Phases 12, 15–17 and **20**, incl. the per-axis `isClosingOn` regressions |
+| `test-call.js` | 130 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt |
+| `test-notes.js` | 112 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels; Phase 19's `empty`; **Phase 20e's "no world variables"** |
 
 `test-call.js` was REWRITTEN at Phase 14 (the Phase-13 pack/unpack tests are gone by
 design, not preserved).
@@ -714,9 +772,13 @@ dragged pill; a sprite variable is just one more pill to drag.
 - **unpack:** the same chooser via the same chip; the runtime `writeVar` check
   does the rest.
 - **Backpack:** a sprite note's card shows the pill of its current value
-  (read-only, struck through when shadowed, like every pouch note). Only world
+  (read-only, struck through when shadowed, like every pouch note). ~~Only world
   notes have live inputs, and world notes are all numbers, so `VAR_META` and the
-  number widget never meet a sprite.
+  number widget never meet a sprite.~~ **That premise died in Phase 20d** — the
+  seed declares its sprites at TOP LEVEL, so they land in the world pouch. The
+  live-input decision is keyed on what a note HOLDS now, not on which pouch it
+  is in, which is the shape it should always have had. (`VAR_META` itself went
+  in 20e — every note's spinner is the same generic range.)
 - **Bubbles and parcels:** `bubbleExpr` substitutes the name into the thought
   bubble; a parcel renders as a mini pill. Parcels become tagged
   (`{type, value}`) rather than raw — `parcelStrip` needs the tag anyway to
@@ -850,25 +912,361 @@ pouch home. That is a phase-sized decision, not a patch. **Auto-discarding stage
 parcels on a NO was considered and rejected:** it gives a failed condition a side
 effect on state it never touched, which is worse magic than the problem.
 
+## Phase 20 — sprite CLASSES and INSTANCES — DONE (20a/20b/20c)
+The first half of `PLAN-sprites-events.md`. Five hardcoded sprites become
+**three classes and five instances**, and the language gains the two pieces the
+event runtime will need: a way to MAKE a sprite and a way to PUT IT ON the
+stage. The event engine (Phases 21–24) is untouched by this phase — deliberately,
+so the risk concentrates later.
+
+### The split, and why it is the whole phase
+A sprite used to be a NAME with a stylesheet rule and a hardcoded size. It is
+two things now:
+
+- a **CLASS** — `{name, w, h, style}` in `classes`. `style` holds exactly the
+  editor's options as CSS declarations. Three of them (`Ball`, `Paddle`,
+  `Brick`) replace five hand-written stylesheet rules.
+- an **INSTANCE** — `{id, cls, x, y, onScene, el}` in `instances`. Five of them
+  keep the LEGACY ids (`ball`, `paddle`, `brick1..3`), which is why every
+  `sprite{name}` in the seed program still names something real and **all ten
+  suites stayed green through 20a with no edits at all**.
+
+`SPRITES`, `SPRITE_SIZE`, `spritePos` and `spriteAlive` all dissolve into
+`instances`. `boxOf(id)` (instance position + class size) is still the ONE
+geometry function. **Gameplay is byte-identical** — the fingerprint harness
+(`fingerprint.js`, 360 samples across idle/left/right) hashes the same before
+and after.
+
+**`spriteAlive` and `spritePos` survive as Proxy VIEWS over `instances`**, kept
+only so `__lang` and the suites read the way they always did while the store
+underneath moved. They are live views, not copies, so there is still exactly one
+source of truth. **Phase 24 deletes both with the legacy names.**
+
+### A class is NOT a value type
+The only thing code can do with a class is instantiate it, so it rides as a
+**chip** on `a new ⟨Class⟩` — the EDGES precedent (finite, chosen, never
+computed, never stored, never the result of anything). `LEAF_CHOICES.new` is one
+entry; `openChoicePop` is still the only body. If classes ever need to flow
+through expressions, that is the upgrade point.
+
+### `a new ⟨Class⟩` — the language's ONE effectful expression
+A deliberate amendment to "expressions stay pure", and the rule that makes it
+safe is **instantiation happens exactly once per execution**:
+
+- `execStmt` opens a memo (`mintMemo`, a `Map` keyed by NODE) and closes it in a
+  `finally`, so "exactly once" is a property of the interpreter rather than a
+  discipline every caller keeps.
+- Inside a live step, the FIRST evaluation mints and everyone after reads the
+  memo. This matters concretely: `execAssign`/`execPack` call `bubbleExpr`
+  BEFORE `evalExpr`, so the row asks the node twice — with the memo the parcel
+  IS what the bubble named, without it there are two instances and the parcel is
+  the second one.
+- **Outside a live step — bubble redraws, authoring scans, chooser previews —
+  nothing is ever created**; `evalExpr` renders the phrase `a new Ball`
+  symbolically. Two mutants cover this (M2, M3) and both go red loudly.
+
+What it buys: **the declaration machinery needed ZERO changes.**
+`new note ball = ⟨a new Ball⟩` types the note from its seed exactly as Phase 18
+built it, and the sprite-note chicken-and-egg (no sprite value existed to seed
+with) dissolves, because this expression IS a source of sprite values. Assign
+and pack came free the same way.
+
+Ids are minted **per class** with a reserved spelling (`Brick·1`, `Brick·2`), so
+a sprite value can never be typed by hand into collision with a class name, a
+flag or a legacy id.
+
+### `add ⟨sprite⟩ to the scene` — membership is a statement
+One ordinary sprite slot and nothing else: `s.field === 'sprite'` already types
+it (the Phase-15 lesson paying off a third time), so the statement needed **no
+new machinery anywhere**. On-scene means rendered and visible to the sensors; an
+instance minted by `a new ...` starts OFF the scene — it exists as a value
+(movable, storable, packable) but has no DIV and is not overlap-scanned.
+
+**`despawn` is reframed as the exact inverse.** Observably nothing changed —
+hidden, touches nothing, references held in notes stay safe — but `add` can now
+bring the same instance back. Adding one that is already there is a visible
+no-op bubble (the `empty` idiom: say so rather than pretend to work).
+
+**Reset REBUILDS the scene**, which is how instances the program minted are
+destroyed. No separate bookkeeping for "the ones we made" — respawning the seed
+IS the reset. **Classes are not reset material**: they are the workbench, like
+the palette.
+
+### DROP_TABLE: zero new rows — the FIFTH free ride
+`a new ⟨Class⟩` is an ordinary `proto-value` (→ `replace`); `add ... to the
+scene` an ordinary `stmt-proto` (→ `insert`). No new payload, no new target, no
+new row. (T20u asserts it.)
+
+### The class panel (20b)
+A class has no source-code form — there is no `class Ball { … }` row — so **its
+editor IS its representation**. One card per class; the card's swatch is a live
+DIV wearing the class's own declarations, so it is not a picture OF the class
+but an instance of it, standing still.
+
+- **`CLASS_OPTS` is the one registry**: background-color, background-image,
+  border-color, and four NUMERIC options — border-width, border-radius, plus
+  **width and height** (`size:true`, they live on the class root rather than in
+  the style block). It drives the card, the popover AND the order the
+  declarations are written in — adding an appearance option is one entry, and
+  `openClassPop`'s body never learns its name. Every numeric option is edited by
+  `numRow`, the same control a number literal gets; `unit` is what lets the
+  editor deal in plain numbers while the class still holds ordinary CSS
+  (`3` → `3px`). **`border-style` was dropped** — a sprite's edge is always
+  solid and the shared `.sprite` rule supplies it, so the class no longer says.
+- **A Ball is round by a NUMBER now** (`border-radius: 14px`, half its 28px
+  border box) rather than by `border-radius: 50%`. A percentage is not something
+  a number editor can write, and the trade was taken deliberately: resize the
+  class and you set the corners too, but the rule that makes a Ball round is a
+  value you can see and change, like every other rule here. This is a knowing
+  deviation from the plan's "`border-radius: 50%` is how a Ball is round".
+- **`setClassOpt` is the single door**: write, `restyleClass` (every live
+  instance repainted, position preserved — M1), `renderClasses`. **One source of
+  truth for a look** is the whole reason classes exist, so the mutant that skips
+  the restyle is the load-bearing one.
+- **"+ new class" mints an always-valid default** — grey 20×20 `class1` with
+  every declaration filled in. There is no half-made class.
+- **Rename is a refactor** (`renameClass`): live instances, `a new ⟨Class⟩`
+  chips and the panel order all follow, exactly as `renameLabel` does for flags.
+  **`nameTaken` is ONE namespace check** — class, flag, world variable, declared
+  note — because all four are things a learner names.
+- **Delete gets the label-deletion treatment**: holders highlighted (the ROWS,
+  via `rowsHolding`, since a chip only renders in the focused statement),
+  confirm, then those chips **fray** — the FIFTH instance of the Phase-9
+  amendment. `htmlExpr` frays too (`clsChip`), because a broken program has to
+  look broken in the compact view as well as the editable one. Running the
+  frayed row halts Beep on it ("a class called Wall? I do not have one!").
+
+### Deliberate visual change, recorded
+The paddle's `.3s ease-out` and the ball's `.5s linear` become **one shared
+glide** on `.sprite`: how a sprite animates is not one of the class editor's
+options, and Phase 22d's rAF interpolation replaces CSS transitions anyway. The
+ball's white highlight (a `::after` pseudo-element a class cannot own) came back
+as a `background-image` radial-gradient — which IS one of the editor's options,
+so the shine is now something a learner could make or remove themselves.
+
+### 20d — the seed program builds its own world (Patrick's call)
+20a–20c deliberately kept the five legacy instances so nothing had to move at
+once. **20d spends that budget**: the stage starts EMPTY and the seed program is
+where every sprite comes from. Fifteen rows above `⚑ start`, three verbs per
+sprite:
+
+    new note brick1 = ⟨a new Brick⟩      MAKE one   (an expression, so it fits a note)
+    move brick1 to brick1X, 6.3636       PUT IT somewhere
+    add brick1 to the scene              PUT IT ON the stage
+    …brick2, brick3, ball, paddle (paint order)
+    ⚑ start                              …and the game loop starts here
+
+**Why above the flag:** `goto start` at the bottom lands on the LABEL, so the
+setup runs exactly once per run with no guard row anywhere. Under the event
+runtime (Phase 22) this becomes the scene's `start` handler and the placement
+stops being a trick. A mutant that puts a flag above the preamble (so the loop
+re-enters it) reddens the suite.
+
+Four things fell out, and each one closed something the doc had listed as owed:
+
+- **`spriteVel` — the last convention-bound read — is gone.** It reached for
+  `state.ballVelocityX/Y` BY NAME, which only ever worked for a sprite called
+  `ball`; once the program mints `Ball·1` there is no such sprite. Velocity is
+  DERIVED now: `moveSprite` records how far the last move carried each sprite.
+  Convention-free, works for anything moved by any means, and it finally makes
+  the paddle read as moving (it genuinely does; it used to report `{0,0}` and
+  count as a rest contact). **The trajectory is unchanged** — measured, not
+  assumed: `fp3.js` hashes the sequence of (ball, velocity, paddle, bricks)
+  states across idle/left/right and the two builds agree state for state, the
+  only difference being three extra states per run where the bricks appear one
+  at a time during setup.
+- **The five static sprite pills retired**, and their replacement cost nothing
+  because it was already built: the seed declares `new note ball = ⟨a new
+  Ball⟩`, so `refreshNoteTiles` puts a `ball` pill on the shelf by itself. Same
+  label, same coral silhouette, dashed because it STANDS FOR a sprite rather
+  than naming one. Phase 8's promise keeping itself, for sprites the program
+  invents. `SPRITES` is deleted; `sceneNames()` asks the registry instead.
+- **A REAL BUG this surfaced.** `LEAF_CHOICES.var` offered the world's eight
+  regardless of slot, which was safe only while a var could never sit in a
+  sprite slot. The seed's sprites are notes now, so sprite slots routinely hold
+  vars — and offering `ballX` there would silently ill-type the slot with no
+  drop gate anywhere to catch it (the chooser writes a field; it does not route
+  through `accepts`). It is type-filtered now: every name whose `noteType` FITS
+  this slot, world variables and declared notes alike. M13 is that regression.
+  **The lesson is the Phase-13b/15 one for the third time: a chooser is a drop
+  path that skips the gate, so it needs the type rule spelled out.**
+- **A BUG THIS SHIPPED, and the shape of it is worth keeping.** Phase 18 wrote
+  down the premise "only world notes have live inputs, and world notes are all
+  numbers, so the number widget never meets a sprite". 20d falsified the second
+  half without touching the backpack at all — top-level `new note ball = ⟨a new
+  Ball⟩` lands in the world pouch — and the world card started offering a number
+  spinner for a note holding `Ball·1`. It looked cosmetic and was not:
+  `commitVar` writes straight into `state` and is the ONE writer that skips
+  `writeVar`, so the spinner was a door into putting a number in a sprite pocket
+  past the exact check that exists to refuse it. Fixed by keying the decision on
+  what a note HOLDS rather than which pouch it sits in (plus a refusal in
+  `commitVar` for a stale input), and the "all in reach" view now renders values
+  through `noteVal` too, so a sprite reads as a pill everywhere.
+  **The generalisable bit: a documented premise is a liability, not a guarantee.
+  This one was written down, correct when written, and quietly falsified from
+  three sections away.** When a phase changes where values LIVE, re-read every
+  claim of the form "X is always a number".
+- **The brick row's y is a program literal** (`6.3636`) instead of a pixel
+  constant the engine converted. Same trade Phase 17 made for the paddle's 95,
+  and it is why a brick can now be moved vertically at all. Decimals are
+  perfectly good literals.
+
+**The cost, honestly:** the opening frame is blank until you press Play or Step.
+That is the honest reading of "the program makes the world" and it was Patrick's
+call with the alternatives on the table (a pre-built frame would mean two
+sources of truth for the scene, which is the thing Phase 20 just removed).
+
+**Test migration — the cost the plan predicted, paid early.** 141 legacy-name
+references across three suites. The pattern that made it cheap: each suite binds
+the sprites the way the PROGRAM does. `test-sprite.js` has `boot()`, which steps
+the preamble and reads the notes it declared (and must be called again after
+every Reset, because Reset now empties the scene); `test-notes.js` mints its own
+with `remint()`, because those tests are about the type system and not about
+where a sprite came from. No test-only backdoor was added to the engine — both
+helpers use seams that already existed.
+
+### 20e — there are no world variables (Patrick's call)
+The last thing in this language that existed because the ENGINE said so. Eight
+numbers were born with the page, spelled out in a `START` table, listed in
+`VARS`, given private spinner ranges in `VAR_META`, and protected by name from
+being shadowed or redeclared. They are ordinary notes now, declared by
+`new note paddleX = 40` rows at the top of the seed exactly as a learner
+declares their own.
+
+**The backpack starts empty, for the same reason the stage does.** `pouches[0]`
+is still the world and `state` is still its notes by identity — but nothing is
+in it until the program's own rows run, and Reset clears it completely. One
+bargain, both halves of the world.
+
+**What this DELETES is the point**, and it is all exception-shaped:
+- the world-name refusals in `execNote` and `validNoteName` — there is nothing
+  left to protect, so `new note paddleX` inside a visit now SHADOWS like any
+  other name. Phase 14's own rule ("`new note` is the only way to shadow") loses
+  its last carve-out. Phase 14 wrote down the principle for exactly this case:
+  **when a rule change makes an exception disappear, take the rule.**
+- the `VARS`-first branch in `noteType` — a name's type is its declaration's
+  seed, always, with no list answering ahead of it. A mutant that hardcodes
+  "these names are numbers" is caught by declaring `paddleX` as a SPRITE.
+- the eight static palette tiles — `refreshNoteTiles` grows them from the
+  declarations instead, so they follow a rename and vanish with a deletion the
+  way nothing static could.
+- `VAR_META` — every note's spinner is the same generic range whatever it is
+  called, so renaming one cannot silently change what you may type into it.
+  `metaOf` is what is left: one range, no names. **This resolves the doc's
+  "two unrelated notions of range" thread by deletion rather than by design** —
+  the per-statement `clamp` field is now the only range the system has, and
+  whether the language wants BOUNDED VARIABLES is still an open question, just a
+  cleaner one.
+
+**Gameplay is unchanged** — 1606 of 1606 shared trajectory states, the only
+difference being two extra samples per run while the declarations execute one at
+a time (the same way the bricks appear one at a time in 20d).
+
+**The seed preamble is 23 rows**: eight numbers, then five sprites at three rows
+each. The numbers come first because the `move` rows read them. That is a long
+opening, and it is the honest price of a program that hides nothing.
+
+**Verification (20e).** `test-notes.js` grew to **112 asserts** with T14–T14d.
+The five new mutants: `clearRunMemory` sparing a name ·
+`noteType` hardcoding a world list · `execNote` refusing a name · the static
+variable tiles returning · `metaOf` getting its private ranges back.
+
+**Two of the five were MISSED by the first draft, both for the same reason: the
+test could not tell the mutant from the truth.** The Reset test clicked Reset
+while the backpack happened to be empty, so "spares one name" spared nothing —
+fixed by running the program's declarations FIRST, then resetting. And
+`noteType('paddleX') === 'number'` passes whether the answer came from the
+declaration or from a hardcoded list, because the honest answer and the cheat
+agree — fixed by declaring `paddleX` as a sprite, where they disagree.
+**A mutant only dies where the right answer and the wrong one differ; assert
+there.**
+
+### Verification — the whole of Phase 20
+`test-sprite.js` grew from 94 to **239 asserts** (T20a–T20u); across the suites
+the phase is **24/24 mutants caught**: class edit not restyling live instances · a loose evaluation minting a
+phantom · no memo (one execution minting twice) · a fresh instance on the scene
+at once · an off-scene instance overlap-scanned · re-`add` building a second DIV
+· Reset leaking the scene · class delete bypassing the confirm · rename not
+reaching the holders · `add`'s sprite slot not deep-cloned · the setup re-running
+on every loop · velocity not derived from the move · the untyped variable chooser
+· a numeric class option dropping its unit · a live numeric edit rebuilding the
+panel instead of repainting the card · the backpack drawing a number spinner for
+a sprite note · `commitVar` clobbering one from a stale input · a statement
+materializing on contact · the block-drag listeners back on `blocksBox` ·
+`clearRunMemory` sparing a name · `noteType` hardcoding a world list ·
+`execNote` refusing a name · the static variable tiles returning · `metaOf`
+getting its private ranges back.
+
+**M15 was MISSED by its first assertion and the miss generalises.** The test
+checked that the chooser survived a keystroke — but the popover lives in
+`document.body`, so rebuilding the panel never touched it and the mutant walked
+straight through. The property that is actually load-bearing is element
+IDENTITY: a live edit REPAINTS the existing swatch, so the card the chooser is
+anchored to is still the same node. **Assert the thing the design actually
+guarantees, not a symptom you would expect to see downstream of it.** The last one was
+MISSED by the first draft — there is no `add` row in the seed, so Reset never
+exercises its clone; the test that catches it duplicates the row through the
+grip menu and edits the copy IN PLACE (a drag would replace the reference and
+hide the sharing — the Phase-18 lesson, third time). 20d added three more:
+the setup re-running on every loop, velocity not derived from the move (which
+blinds `isClosingOn` silently), and the untyped variable chooser above.
+
+**Next: Phase 21 (contexts), then 22 (the event engine).** See
+`PLAN-sprites-events.md`. Nothing in 20 forced a design revision, and 20d has
+already done three pieces of Phase 24's list: the seed's instantiation half, the
+retirement of the static pills and legacy names, and the `spriteVel` fix. What
+is left for 24 is the EVENT half — walls as sprites, per-class scripts, the
+overlap vector — which needs 21–23 first.
+
 **Next up:**
-- **18d, the seed payoff** — the three brick handlers become one `hitBrick`
-  routine. The language is ready; only the seed refactor is left, and it is
-  gated on a throwaway harness first (see Phase 18's payoff section for the
-  jump-guarded shape and the two hazards it dodges).
+- **Phase 21 — contexts** (`PLAN-sprites-events.md`). Factor
+  `program`/`pc`/`pouches`/`open` into a context object with a module-level
+  `cur`; the scene gets one, every instance gets one. Pure refactor, all suites
+  stay green.
+- **18d is SUPERSEDED**, not dropped: the three brick handlers still collapse
+  into one, but into `Brick`'s own script in the Phase-24 seed rewrite rather
+  than into a `hitBrick` routine. The jump-guarded shape and its two hazards
+  stay recorded in Phase 18 because they are still the taught idiom for a
+  conditional call.
 
 **Known limits worth fixing:**
-- **`spriteVel` is the LAST convention-bound thing left.** It reads
-  `state.ballVelocityX/Y` BY NAME, so `isClosingOn` only really works for the ball —
-  the paddle genuinely moves (`nudgePaddle`) but reads as stationary, and a learner
-  who builds movement without those variables gets `{0,0}`. Now that sprites own their
-  positions the fix is cheap: cache each sprite's position per pass and derive
-  velocity from the delta. Convention-free, works for any sprite moved by any means.
-- **Two unrelated notions of range coexist:** the per-statement `clamp` field (present
-  on exactly two rows) and `VAR_META` (`paddleX:{min:0,max:100}`,
-  `ballVelocityX:{min:-12,max:12}`) which today only configures the backpack widget.
-  The authoring UI knows paddleX lives in 0..100; the interpreter does not. Unifying
-  them = deciding whether the language has BOUNDED VARIABLES at all, and whether
-  hitting a bound is silent, a bubble, or a halt. A phase-sized pedagogical decision.
+- **A class rename does not migrate instance ids.** `Brick·1` keeps its
+  spelling after `Brick` becomes `Wall`. Ids are opaque values and nothing reads
+  the prefix, so this is cosmetic — but it is the one place where the "names
+  remain the identity" refactor stops short.
+- **A returning user's saved panel order puts Classes last.** `initPanels` only
+  honours keys that still resolve and appends the rest, which is the documented
+  behaviour for panels added since the save. No migration needed.
+- ~~`spriteVel` is the LAST convention-bound thing left.~~ **FIXED in Phase
+  20d** — velocity is derived from the last `move`'s delta, which is the fix
+  this entry prescribed. Nothing in the engine reads a variable by name any more.
+- **A sprite's velocity is its last MOVE, not its last tick.** Two moves in one
+  pass and only the second counts; a sprite nothing moved reads `{0,0}` and
+  counts as a rest contact. Under the fixed timestep (Phase 22) this becomes
+  per-tick and the wrinkle goes away.
+- **The sticky side column is coupled to the program's height.** `.side` is
+  `position:sticky; top:12px`, and a sticky box may not leave its containing
+  block — here the grid AREA, whose height is the taller column, i.e. the
+  program. Scroll far enough that the column clamps against that bottom edge and
+  any change to the program's height shifts the whole right-hand column. Adding
+  a row is the obvious trigger; deleting one and folding a panel do it too. The
+  tap bug made it fire on a mere click, which is fixed, but the coupling is
+  still there on a genuine drop. Two ways out if it grates: drop `position:
+  sticky` (with five panels the column is taller than most viewports, so sticky
+  clamps almost immediately and buys little), or give it
+  `max-height:calc(100vh - 24px); overflow-y:auto` so it always fits and scrolls
+  itself. Both are one line; neither was taken unilaterally.
+- **The stage is blank until the program runs.** Deliberate (Phase 20d), but it
+  is the first thing a new learner sees, so it may want a nudge in the Stage
+  panel's help text — "press Play to build the world".
+- **Setup rows above the flag are a placement TRICK.** They run once because
+  `goto start` skips them, which is true but not stated anywhere in the program.
+  Phase 22's scene `start` handler replaces the trick with a rule.
+- ~~Two unrelated notions of range coexist~~ — **`VAR_META` is gone (Phase
+  20e)**, so the per-statement `clamp` field is now the only range the system
+  has. The open question is smaller and cleaner: does the language want BOUNDED
+  VARIABLES at all, and is hitting a bound silent, a bubble, or a halt? Still a
+  phase-sized pedagogical decision, but no longer a contradiction.
 
 **Planned:**
 - **A plain-English pass over all syntax** (Patrick): the language should read like
