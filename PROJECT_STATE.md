@@ -662,6 +662,7 @@ name to find out where something is — the convention lives in the PROGRAM, whi
 | `test-sprite.js` | 239 | Phases 12, 15–17 and **20**, incl. the per-axis `isClosingOn` regressions |
 | `test-call.js` | 163 | Phases 13/13b/14: staging, resolution matrix, factorial, every halt; **Phase 21's contexts** |
 | `test-notes.js` | 112 | Phase 18: typed notes, sprite vars, `'any'` slots, typed parcels; Phase 19's `empty`; **Phase 20e's "no world variables"** |
+| `test-events.js` | 60 | **Phase 22a's scheduler**: delivery, run-to-completion, the SYSTEM return, the implicit end, tick order, the budget |
 
 `test-call.js` was REWRITTEN at Phase 14 (the Phase-13 pack/unpack tests are gone by
 design, not preserved).
@@ -1320,18 +1321,151 @@ standing somewhere the two answers disagree.
 
 **Next up:**
 - **Phase 22 — the event engine** (`PLAN-sprites-events.md`), the big one.
-  22a the scheduler (tick order, `STEP_BUDGET`, `SYSTEM` return, implicit
-  end-of-script return, the `__evt` seam); 22b the event sources (the overlap
+  22a the scheduler (**DONE**, below); 22b the event sources (the overlap
   vector, `spawn`/`despawn`, scene `start`); 22c `myself` and `valueType`
-  reading the instance registry; 22d rAF interpolation. Phase 21 left `queue`
-  and `idle` on every context waiting for it.
+  reading the instance registry; 22d rAF interpolation.
 - **18d is SUPERSEDED**, not dropped: the three brick handlers still collapse
   into one, but into `Brick`'s own script in the Phase-24 seed rewrite rather
   than into a `hitBrick` routine. The jump-guarded shape and its two hazards
   stay recorded in Phase 18 because they are still the taught idiom for a
   conditional call.
 
+## Phase 22a — THE SCHEDULER — DONE
+The machinery that visits scripts, and nothing else. WHAT the engine visits with
+(the overlap vector, `spawn`/`despawn`, scene `start`) is 22b; WHO drives the
+tick in the UI is 22d/23. **Headless first** (Patrick): the tick is driven only
+from `__evt`, by the suites, and Play/Step keep driving the scene statement by
+statement exactly as before — a scheduler is proved deterministically before it
+owns the buttons. All ten existing suites stayed green throughout.
+
+### Delivery IS the Phase-14 machinery, engine-initiated
+Dispatching an event stages a pouch with the event's parcels **already inside**,
+pushes it with `ret: SYSTEM`, and sets pc to the label. That is the whole of
+argument passing, and it is the same move `nextPc`'s visit door makes — the only
+difference is where the pouch came from. A handler unpacks its arguments exactly
+as any visit does, and one that doesn't care never unpacks: the leftovers die
+with the frame (Phase 14, T19, still load-bearing).
+
+`SYSTEM` is an object, deliberately **not a row**, so `script.indexOf(SYSTEM)` is
+−1 everywhere and nothing that walks rows can mistake it for one. Returning
+through it ends the handler instead of resuming a caller, and **undelivered
+results are discarded** — there is no caller to receive them. The mutant that
+pushes them onto the next pouch is caught.
+
+### Three doors became one unwind
+`return`, falling off the end, and the SYSTEM pop were three shapes of the same
+thing, so they are one path now: `advanceTo → endOfScript → retFrom`, mutually
+recursive and terminating because every `retFrom` pops a frame. That is what
+made **wrap-to-top** removable in one place rather than two.
+
+**Wrap-to-top is gone, and it cost nothing.** `(i + 1) % script.length` was the
+one rule that assumed a script is a loop. Falling off the end is an implicit
+return: pop a frame if there is one, otherwise the context comes to rest. The
+expectation was suite migration pain; **all 872 existing asserts passed on the
+first run**, because the seed never falls off its end (it ends in `goto bounceY`)
+and no suite had ever asserted the wrap. Worth recording as a case where the
+predicted cost of a semantic break was simply not there — the break had been
+priced by how load-bearing it *sounded*.
+
+**The distinction that had to survive:** running out of rows is how every handler
+is *supposed* to finish, while an EXPLICIT `return` with no bookmark is a
+learner's mistake and is still the `nostack` halt. Conflating them is a mutant,
+and it **survived the first version of its own test** — see below.
+
+### Run-to-completion, and the queue that makes it true
+A handler runs to its return before the next event reaches that instance. An
+event arriving mid-handler waits in **that context's own** queue; two instances
+never wait on each other. `runToCompletion` drains the queue as it goes, and the
+budget spans the drain, because the budget is per context per TICK.
+
+### The budget is a teachable failure, not a hang
+`STEP_BUDGET` (500 statements) turns an infinite loop into Beep stuck — *"I never
+finished thinking!"* — with pc parked on the row he reached, which is the same
+halt surface every Phase-13 failure already uses. **A halt ends the whole tick**:
+carrying on would simulate half a world. The mutant that removes the budget is
+caught by the suite HANGING, which is why the test asserts the halt and not just
+a statement count.
+
+### A missing label is unsubscribing, not an error
+Rename or delete `simulate` and the events simply stop arriving. `dispatch`
+answers false, Beep is not confused, and the tick carries on to the next
+instance — a Wall is geometry that stands there. This is why `runEvent` has four
+distinct answers (`nolabel` / `queued` / `ran` / `stopped`): the tick has to tell
+"nothing to do" apart from "Beep stopped", and an early version conflated them,
+which would have made a scene with no `simulate` handler silently skip every
+instance in the world.
+
+### Scene-entry order is its own source of truth
+`sceneOrder` is a list beside the `onScene` flag, because `instances` is keyed in
+MINTING order and the two differ the moment anything is minted early and added
+late — or removed and re-added, which sends it to the back. The tick's order is a
+mutation target, so it could not be allowed to be accidentally-right.
+
+### Verification
+`test-events.js`, **60 asserts, 11/11 mutants caught**: results leaking past a
+SYSTEM return · wrap-to-top restored · the end of a script conflated with the
+`nostack` halt · no run-to-completion (an event interrupting instead of queueing)
+· the tick following minting order · the budget removed (caught as a hang) · a
+halt not ending the tick · a missing label halting · `setScript` handing out a
+fresh array · the event pouch not marked SYSTEM · a removal not leaving the
+scene order.
+
+**The `nostack` mutant survived its first test, and it is the same lesson for the
+fourth time.** The test asserted that a context is "at rest" after its last row —
+but the context it was driving had `idle: true` from birth and had never been
+dispatched, so the assertion was true whatever the rule was. It only started
+killing the mutant once the test stood somewhere the two answers differ: the
+context made genuinely non-idle first, and the assertion moved onto **what
+`nextPc` answers** (`null` vs `'nostack'`). **If a mutant survives, the first
+question is still whether the test is even standing where the two answers
+disagree.**
+
+### OPEN QUESTION 22a surfaced — where does a note declared in a HANDLER live?
+Not a bug in this phase; a hole in the **Phase-24 seed sketch**, found because
+`test-events.js` T2 had to assert where an unpacked value lands and the answer
+was visible.
+
+`new note` declares in the **active pouch** (Phase 14's rule, unchanged, and the
+only way to shadow). Inside a handler the active pouch is the HANDLER'S FRAME —
+which the SYSTEM return pops and discards. So in the plan's sketch
+
+    Ball: ⚑ spawn     new note vx = 2 / new note ox = 0
+          ⚑ simulate  unpack into ox   (write-through "finds" ox)
+
+**`vx` and `ox` do not survive `spawn`.** They are declared in the spawn frame,
+that frame dies on return, and `simulate` finds nothing — so the write-through
+creates a fresh note in the *simulate* frame instead, which dies too. The seed's
+central claim — "velocities are Ball's own notes", per-instance state living on
+the instance — has no mechanism behind it yet. The plan assumed a note declared
+in a handler is an INSTANCE note; nothing makes that true.
+
+Three ways out, none taken unilaterally:
+1. **A handler frame is transparent for declaration** — `new note` in a
+   SYSTEM-rooted frame declares in the context's BASE pouch, so instance notes
+   fall out exactly as the plan describes. Costs a special case in the one rule
+   that currently has none.
+2. **The handler's pouch IS the instance's base pouch** — dispatch stages the
+   parcels into it rather than pushing a frame. Instance notes are automatic,
+   but `return` then has no frame to pop (the `nostack` floor), so the whole
+   SYSTEM-return machinery would need rethinking, and event parcels would live
+   in the same pouch as the notes.
+3. **Leave the rule alone and rewrite the sketch** — per-instance state needs a
+   different source (a class-level declaration, or an explicit "my notes"
+   scope). Keeps `new note` uniform; costs the seed its most readable idiom.
+
+This wants a decision **before 22b**, because `spawn` is one of the event sources
+22b delivers and its whole purpose in the sketch is to initialise instance notes.
+
 **Known limits worth fixing:**
+- **A root context that runs off the end re-runs its last row if stepped
+  again.** pc parks on the last row and `idle` goes true, but Play/Step don't
+  consult `idle` (deliberately — headless-first left the transport alone), so a
+  learner who deletes the seed's final `goto` gets Beep grinding on the last row
+  instead of wrapping. Phase 23's transport rewiring is where the step functions
+  learn to respect a context at rest.
+- **The backpack draws a class script's labels as lost** (`⚑ ?`), because
+  `pouchLabel` resolves them against `program`, the SCENE's script. Cosmetic, and
+  exactly what Phase 23's multi-script UI is for.
 - **A class rename does not migrate instance ids.** `Brick·1` keeps its
   spelling after `Brick` becomes `Wall`. Ids are opaque values and nothing reads
   the prefix, so this is cosmetic — but it is the one place where the "names

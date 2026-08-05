@@ -1041,11 +1041,20 @@
   /* ON THE SCENE means: rendered, and visible to the sensors. `add` and
      `despawn` are exact inverses over this one flag, so an instance can leave
      and come back. */
+  /* Phase 22a: SCENE-ENTRY ORDER, kept as a list beside the flag. The tick
+     visits on-scene instances in the order they ARRIVED, which is a property of
+     the scene and not of the instances map - `instances` is keyed in MINTING
+     order, and the two differ the moment anything is minted early and added
+     late (or removed and re-added, which sends it to the back of the queue).
+     The tick's order is a mutation target, so it needs a source of truth that
+     cannot silently be the wrong one. */
+  const sceneOrder = [];
   function addToScene(id){
     const i = instances[id];
     if (!i || i.onScene) return false;
     if (!i.el){ i.el = buildSpriteEl(i); styleInstance(i); }
     i.onScene = true;
+    sceneOrder.push(id);                 // newest arrival goes last: it ticks last
     i.el.classList.remove('gone');
     drawSprite(id);
     return true;
@@ -1054,12 +1063,16 @@
     const i = instances[id];
     if (!i || !i.onScene) return false;
     i.onScene = false;
+    const k = sceneOrder.indexOf(id);
+    if (k !== -1) sceneOrder.splice(k, 1);
     if (i.el) i.el.classList.add('gone');
     return true;
   }
   function destroyInstance(id){
     const i = instances[id];
     if (!i) return;
+    const k = sceneOrder.indexOf(id);
+    if (k !== -1) sceneOrder.splice(k, 1);
     if (i.el) i.el.remove();
     delete instances[id];
   }
@@ -2411,8 +2424,8 @@
       pc:      0,                // which of those rows is next
       pouches: [makePouch()],    // its OWN base pouch, then its frames
       open:    makePouch(),      // what it is packing for its next visit
-      queue:   [],               // events waiting to be delivered (Phase 22)
-      idle:    false             // true once a handler has run to its return
+      queue:   [],               // events waiting their turn (run-to-completion)
+      idle:    true              // at rest: no handler is part-way through
     };
   }
   /* Back to the state a context is in before it has run anything. The BASE
@@ -2422,7 +2435,7 @@
      in place rather than reassigned. */
   function resetCtx(ctx){
     ctx.pc = 0;
-    ctx.idle = false;
+    ctx.idle = true;             // nothing part-way through: a fresh run is at rest
     ctx.queue.length = 0;
     const base = ctx.pouches[0];
     base.parcels.length = 0;
@@ -2546,6 +2559,69 @@
   /* Phase 21: every `pc`, `pouches` and `open` in here is the CURRENT
      context's, and every row index is an index into ITS script. That is the
      whole refactor - the control-flow rules did not change a word. */
+  /* Phase 22a: THE SENTINEL AT THE BOTTOM OF A HANDLER. When the engine
+     delivers an event it pushes a frame like any visit, but there is no calling
+     ROW to come back to - the caller is the scheduler. `SYSTEM` is what sits in
+     that frame's `ret` slot: an object, deliberately not a row, so
+     `script.indexOf(SYSTEM)` is -1 everywhere and nothing that walks rows can
+     mistake it for one. Returning through it ends the handler instead of
+     resuming a caller. */
+  const SYSTEM = { system:true };
+  /* Land on row `i`, or - if there is no row `i` - unwind, because FALLING OFF
+     THE END OF A SCRIPT IS AN IMPLICIT RETURN (Phase 22a). Wrap-to-top is gone:
+     a script is a set of handlers, not a loop, and `(i + 1) % length` was the
+     one rule that assumed otherwise. It also could not survive contact with
+     events - a handler that ran off its last row would silently restart the
+     whole script from the top instead of finishing. */
+  /* `report` says what a successful landing ANSWERS: a return reports its
+     destination (the callers light the wire and pulse the flag, exactly as they
+     did when this was `(ci + 1) % length`), while an ordinary step to the next
+     row reports null, meaning "nothing jumped". */
+  function advanceTo(i, report){
+    if (i < cur.script.length){ cur.pc = i; return report ? i : null; }
+    return endOfScript(cur.script.length - 1);
+  }
+  /* Nothing left to run in this script. With a frame on the pile that is a
+     return; with no frame it is simply the end - the context goes to rest.
+     Note this is NOT the `nostack` halt: an EXPLICIT `return` with no bookmark
+     is a learner's mistake and still puzzles Beep, but running out of rows is
+     how every handler is supposed to finish. */
+  function endOfScript(fromIndex){
+    if (cur.pouches.length <= 1){
+      cur.pc = Math.max(0, fromIndex);
+      cur.idle = true;
+      return null;
+    }
+    return retFrom(fromIndex);
+  }
+  // the unwind itself, shared by the `return` statement and the implicit end
+  function retFrom(fromIndex){
+    const top = activePouch();
+    if (top.ret === SYSTEM){
+      /* A HANDLER ENDS. Its pouch goes, and so does whatever it packed and
+         never took anywhere: there is no caller, so undelivered results are
+         DISCARDED rather than falling into somebody else's pouch. (Mutant: push
+         them into the next context's active pouch and one handler's leftovers
+         become another's arguments.) */
+      cur.pouches.pop();
+      cur.open = makePouch();
+      cur.pc = Math.max(0, fromIndex);
+      cur.idle = true;
+      renderStack('in'); renderMarks();
+      return null;
+    }
+    const ci = cur.script.indexOf(top.ret);                          // resolve LATE, every time
+    if (ci === -1){ cur.pc = fromIndex; return 'lostmark'; }          // its row was deleted mid-visit
+    // whatever this visit packed and never took anywhere ARE the results;
+    // its own pouch - unconsumed arguments and all - is discarded with it.
+    const results = cur.open.parcels;
+    cur.pouches.pop();
+    cur.open = makePouch();
+    const caller = activePouch();
+    for (let k = 0; k < results.length; k++) caller.parcels.push(results[k]);
+    renderStack('in'); renderMarks();
+    return advanceTo(ci + 1, true);                                  // the row AFTER the call
+  }
   function nextPc(fromIndex, result){
     const script = cur.script;
     if (result.visit !== undefined){
@@ -2566,18 +2642,7 @@
       // a context's BASE pouch never returns - it is the floor, so no context
       // can ever unwind into the frames of the one that spawned it
       if (cur.pouches.length <= 1){ cur.pc = fromIndex; return 'nostack'; }
-      const ci = script.indexOf(activePouch().ret);                    // resolve LATE, every time
-      if (ci === -1){ cur.pc = fromIndex; return 'lostmark'; }          // its row was deleted mid-visit
-      // whatever this visit packed and never took anywhere ARE the results;
-      // its own pouch - unconsumed arguments and all - is discarded with it.
-      const results = cur.open.parcels;
-      cur.pouches.pop();
-      cur.open = makePouch();
-      const caller = activePouch();
-      for (let k = 0; k < results.length; k++) caller.parcels.push(results[k]);
-      renderStack('in'); renderMarks();
-      cur.pc = (ci + 1) % script.length;                               // the row AFTER the call
-      return cur.pc;
+      return retFrom(fromIndex);
     }
     if (result.jump !== undefined){
       const t = labelIndexIn(script, result.jump);
@@ -2585,8 +2650,7 @@
       cur.pc = t;
       return t;
     }
-    cur.pc = (fromIndex + 1) % script.length;   // fall off the end: back to the top
-    return null;
+    return advanceTo(fromIndex + 1, false);
   }
   // Phase 9: the flag is gone. Beep stops where he is, puzzles, and every run
   // mode ends. pc stays ON the jump line - the bug is still there to step into,
@@ -2615,6 +2679,135 @@
     if (typeof t !== 'string') return false;
     beepStuck(STUCK[t](result));
     return true;
+  }
+
+  /* ============ Phase 22a: THE SCHEDULER ============
+     The engine visits scripts. Everything below is the machinery for that and
+     nothing else: WHAT it visits with (the overlap vector, spawn/despawn,
+     scene `start`) is Phase 22b, and WHO drives the tick in the UI is 22d/23.
+     Today the tick is driven only from `__evt`, by the suites, which is the
+     point - a scheduler proved deterministically before it owns the buttons.
+
+     Three rules, and they are all here:
+     - DELIVERY IS THE PHASE-14 MACHINERY, engine-initiated. An event is a
+       staged pouch pushed with `ret: SYSTEM` and pc set to the label. A handler
+       unpacks its arguments exactly as any visit does, and one that does not
+       care never unpacks - the leftovers die with the frame (Phase 14, T19).
+     - RUN TO COMPLETION. A handler runs to its return before the next event
+       dispatches to that instance. No interrupts, no re-entrancy. An event that
+       arrives mid-handler waits in that context's own queue.
+     - EVENT LABELS ARE ORDINARY LABELS. Rename or delete one and the events
+       simply stop arriving - unsubscribing, visible, and NOT a halt. A script
+       with no `simulate` label just holds still. */
+  const SIM_DT = 300;        // ms between ticks - one old full pass, roughly
+  /* The budget is what turns an infinite loop into a teachable failure. Today a
+     `goto` back to the top of a handler hangs the browser silently; with a
+     budget Beep runs out of thinking and STOPS, pc parked on the row he
+     reached, which is the halt surface every other Phase-13 failure already
+     uses. (Mutant: remove it and the suite hangs rather than failing - which is
+     why the test asserts the halt, not just the statement count.) */
+  const STEP_BUDGET = 500;   // statements one context may run in one tick
+  const EV_SIMULATE = 'simulate', EV_SPAWN = 'spawn',
+        EV_DESPAWN  = 'despawn',  EV_START = 'start';
+
+  /* Phase 22b fills these two in: the SNAPSHOT computes every on-scene
+     instance's total overlap vector from start-of-tick positions, all at once,
+     so no instance's move can change what a later one is told; `eventParcels`
+     then hands each instance its own as two number parcels. They are hooks
+     rather than nothing so that the tick's ORDER is already the real one -
+     snapshot strictly before any handler runs, which is exactly the
+     order-independence 22b's mutants attack. Until then every instance is
+     handed an empty pouch, and a handler that unpacks nothing cannot tell. */
+  let tickSnapshot = null;
+  function snapshotTick(){ tickSnapshot = null; }
+  function eventParcels(){ return []; }
+
+  /* Stage a pouch with the event's parcels ALREADY INSIDE and push it with
+     `ret: SYSTEM`. That is the whole of argument passing, and it is the same
+     move `nextPc`'s visit door makes - the difference is only where the pouch
+     came from. Answers false when the script has no such label, which is not a
+     failure: it is what unsubscribing looks like. */
+  function dispatch(ctx, label, parcels){
+    const t = labelIndexIn(ctx.script, label);
+    if (t === -1) return false;
+    const p = makePouch();
+    p.label = ctx.script[t];
+    p.ret   = SYSTEM;
+    (parcels || []).forEach(function(v){ p.parcels.push(v); });
+    ctx.pouches.push(p);
+    ctx.pc   = t;
+    ctx.idle = false;
+    return true;
+  }
+  /* Run-to-completion in one line: a context that is already part-way through
+     something takes the event in its QUEUE instead. The queue is per-context
+     because the rule is per-context - two instances never wait on each other. */
+  function deliver(ctx, label, parcels){
+    if (!ctx.idle){ ctx.queue.push({ label:label, parcels:parcels || [] }); return 'queued'; }
+    return dispatch(ctx, label, parcels) ? 'dispatched' : 'nolabel';
+  }
+  /* Run this context until it comes to rest, draining its queue as it goes, and
+     never for more than STEP_BUDGET statements. Answers false if it stopped
+     because something went wrong (a halt, a /0, the budget) - in every one of
+     those cases pc is parked on the offending row, exactly as it is after a
+     failed step, so the bug stays steppable. */
+  function runToCompletion(ctx){
+    let steps = 0;
+    return runIn(ctx, function(){
+      for(;;){
+        while (!ctx.idle){
+          if (steps >= STEP_BUDGET){ beepStuck('I never finished thinking!'); return false; }
+          const i = ctx.pc;
+          const b = ctx.script[i];
+          if (!b){ ctx.idle = true; break; }      // the row went away underneath him
+          const r = b.exec();
+          steps++;
+          if (r.divZero){ beepConfusedDivide(); return false; }
+          if (r.stuck){ beepStuck(r.stuck); return false; }
+          if (haltCode(nextPc(i, r), r)) return false;
+        }
+        if (!ctx.queue.length) return true;
+        const e = ctx.queue.shift();
+        // a label deleted while its event waited: the event simply never arrives
+        if (!dispatch(ctx, e.label, e.parcels)) return true;
+      }
+    });
+  }
+  /* Deliver, then (if it actually went out) run it to completion. The four
+     answers are deliberately distinct, because the tick has to tell "nothing to
+     do" apart from "Beep stopped": a script with no `simulate` label is the
+     NORMAL case (a Wall is geometry that stands there) and must not end the
+     tick, while a halt must end it immediately. */
+  function runEvent(ctx, label, parcels){
+    const d = deliver(ctx, label, parcels);
+    if (d !== 'dispatched') return d;              // 'nolabel' | 'queued'
+    return runToCompletion(ctx) ? 'ran' : 'stopped';
+  }
+  /* ONE TICK, in fixed order: snapshot everything, then `simulate` to the scene,
+     then to each on-scene instance IN SCENE-ENTRY ORDER, each handler running
+     to completion before the next dispatches. The order is fixed so that the
+     tick is reproducible - which is the whole reason the suites drive `tick()`
+     and never rAF. */
+  let tickNo = 0;
+  function tick(){
+    tickNo++;
+    snapshotTick();
+    if (runEvent(scene, EV_SIMULATE, []) === 'stopped'){ renderPack(); return tickNo; }
+    /* A COPY of the order, because a handler may add or remove instances while
+       we are walking it. The membership test inside the loop is what makes a
+       removal take effect immediately: an instance taken off the scene earlier
+       in THIS tick does not get simulated afterwards.
+       A plain loop, not forEach, because A HALT ENDS THE TICK: when Beep stops
+       being able to think, everything stops - the same promise every other
+       failure surface makes. Carrying on would simulate half a world. */
+    const order = sceneOrder.slice();
+    for (let k = 0; k < order.length; k++){
+      const inst = instances[order[k]];
+      if (!inst || !inst.onScene || !inst.ctx) continue;
+      if (runEvent(inst.ctx, EV_SIMULATE, eventParcels(inst)) === 'stopped') break;
+    }
+    renderPack();
+    return tickNo;
   }
   // Beep reaches a live divide-by-zero: he stops, baffled, exactly like a lost
   // jump. The callers return BEFORE nextPc, so pc stays on the offending row.
@@ -3767,6 +3960,36 @@
       eachInReach(ctx || cur, function(p, c, base){ out.push({ pouch:p, ctx:c, base:base }); });
       return out;
     }
+  };
+  /* Phase 22a seam: THE SCHEDULER, drivable statement by statement and tick by
+     tick with no clock anywhere. `tick()` is the keystone - the suites call it
+     directly, so nothing in the event runtime is ever proved by watching an
+     animation. rAF appears in 22d and must never appear in a test. */
+  window.__evt = {
+    SYSTEM: SYSTEM, STEP_BUDGET: STEP_BUDGET, SIM_DT: SIM_DT,
+    EVENTS: { simulate:EV_SIMULATE, spawn:EV_SPAWN, despawn:EV_DESPAWN, start:EV_START },
+    tick:  tick,
+    ticks: function(){ return tickNo; },
+    resetTicks: function(){ tickNo = 0; },
+    dispatch: dispatch, deliver: deliver, runEvent: runEvent,
+    runToCompletion: runToCompletion,
+    idle:  function(ctx){ return ctx.idle; },
+    queue: function(ctx){ return ctx.queue.slice(); },
+    // the tick's iteration order, as its own source of truth
+    order: function(){ return sceneOrder.slice(); },
+    /* Load rows into a CLASS's script. The array is filled in place, never
+       replaced: every instance context built by `makeCtx` holds a reference to
+       it, so handing the class a fresh array would leave the live ones running
+       the old one - the same reason `resetCtx` empties its pouches rather than
+       reassigning them. */
+    setScript: function(clsName, rows){
+      const c = classes[clsName];
+      if (!c) return null;
+      c.script.length = 0;
+      (rows || []).forEach(function(b){ c.script.push(b); });
+      return c.script;
+    },
+    scriptOf: function(clsName){ return classes[clsName] ? classes[clsName].script : null; }
   };
   window.__call = {
     CALL_MAX: CALL_MAX,
